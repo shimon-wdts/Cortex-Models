@@ -18,8 +18,8 @@ settings = Dynaconf(
 )
 
 DATA_DIR = settings.data_dir
-ALERTS_CSV_V10 = os.path.join(DATA_DIR, settings.alerts_csv_name)
-ACK_FILE = os.path.join(DATA_DIR, settings.ack_file_name)
+ALERTS_CSV_V10 = os.path.join(settings.data_dir, settings.alerts_csv_name)
+ACK_FILE = os.path.join(settings.data_dir, settings.ack_file_name)
 
 PAS_BASE_URL = settings.pas_base_url
 PAS_PARTNER_ID = settings.pas_partner_id

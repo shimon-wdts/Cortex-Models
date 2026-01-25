@@ -28,17 +28,23 @@ def build_decision_payload(alert_id: str, status: str, reason: str, user: str):
 
 
 def _load_alerts_df() -> pd.DataFrame:
-    if not os.path.exists(config.ALERTS_CSV_V10):
+    alerts_csv_path = os.path.join(
+        config.settings.data_dir, config.settings.alerts_csv_name
+    )
+    if not os.path.exists(alerts_csv_path):
         return pd.DataFrame()
-    df = pd.read_csv(config.ALERTS_CSV_V10)
+    df = pd.read_csv(alerts_csv_path)
     dupes = [c for c in df.columns if c.endswith(".1") or c.endswith(".2")]
     df = df.drop(columns=dupes, errors="ignore")
     return df
 
 
 def _load_ack_df() -> pd.DataFrame:
-    if os.path.exists(config.ACK_FILE):
-        df = pd.read_csv(config.ACK_FILE)
+    ack_file_path = os.path.join(
+        config.settings.data_dir, config.settings.ack_file_name
+    )
+    if os.path.exists(ack_file_path):
+        df = pd.read_csv(ack_file_path)
         for col in ACK_COLUMNS:
             if col not in df.columns:
                 df[col] = ""
@@ -49,7 +55,10 @@ def _load_ack_df() -> pd.DataFrame:
 def save_ack(alert_id: str, status: str, reason: str = "", user: str = "") -> None:
     df = _load_ack_df()
     df.loc[len(df)] = [alert_id, now_iso(), status, reason, user]
-    df.to_csv(config.ACK_FILE, index=False)
+    ack_file_path = os.path.join(
+        config.settings.data_dir, config.settings.ack_file_name
+    )
+    df.to_csv(ack_file_path, index=False)
 
 
 def _payout_risk_label(rel, buf) -> str:

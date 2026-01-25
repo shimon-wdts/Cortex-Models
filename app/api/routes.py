@@ -29,7 +29,9 @@ def acknowledge(alert_id: str, pas: FromDishka[PasClient]):
     decision_payload = alerts.build_decision_payload(alert_id, "ACCEPTED", "", "")
 
     try:
-        pas_result = pas.publish_topic_message(config.PAS_DECISION_TOPIC, decision_payload)
+        pas_result = pas.publish_topic_message(
+            config.settings.pas_decision_topic, decision_payload
+        )
     except Exception as exc:
         pas_result = {"error": str(exc)}
 
@@ -53,7 +55,9 @@ def reject(alert_id: str, payload: RejectPayload, pas: FromDishka[PasClient]):
     )
 
     try:
-        pas_result = pas.publish_topic_message(config.PAS_DECISION_TOPIC, decision_payload)
+        pas_result = pas.publish_topic_message(
+            config.settings.pas_decision_topic, decision_payload
+        )
     except Exception as exc:
         pas_result = {"error": str(exc)}
 

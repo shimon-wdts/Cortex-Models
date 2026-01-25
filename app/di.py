@@ -8,7 +8,7 @@ class AppProvider(Provider):
     @provide(scope=Scope.APP)
     def pas_client(self) -> PasClient:
         return PasClient(
-            base_url=config.PAS_BASE_URL,
-            partner_id=config.PAS_PARTNER_ID,
-            api_key=config.PAS_API_KEY,
+            base_url=config.settings.pas_base_url,
+            partner_id=config.settings.pas_partner_id,
+            api_key=config.settings.pas_api_key,
         )
