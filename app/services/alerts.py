@@ -5,7 +5,7 @@ from typing import Any, List, Optional
 
 import pandas as pd
 
-from app.core import config
+from app.core.config import settings
 from app.models.schemas import FillCard, Rationale
 
 
@@ -29,7 +29,7 @@ def build_decision_payload(alert_id: str, status: str, reason: str, user: str):
 
 def _load_alerts_df() -> pd.DataFrame:
     alerts_csv_path = os.path.join(
-        config.settings.data_dir, config.settings.alerts_csv_name
+        settings.data_dir, settings.alerts_csv_name
     )
     if not os.path.exists(alerts_csv_path):
         return pd.DataFrame()
@@ -41,7 +41,7 @@ def _load_alerts_df() -> pd.DataFrame:
 
 def _load_ack_df() -> pd.DataFrame:
     ack_file_path = os.path.join(
-        config.settings.data_dir, config.settings.ack_file_name
+        settings.data_dir, settings.ack_file_name
     )
     if os.path.exists(ack_file_path):
         df = pd.read_csv(ack_file_path)
@@ -56,7 +56,7 @@ def save_ack(alert_id: str, status: str, reason: str = "", user: str = "") -> No
     df = _load_ack_df()
     df.loc[len(df)] = [alert_id, now_iso(), status, reason, user]
     ack_file_path = os.path.join(
-        config.settings.data_dir, config.settings.ack_file_name
+        settings.data_dir, settings.ack_file_name
     )
     df.to_csv(ack_file_path, index=False)
 

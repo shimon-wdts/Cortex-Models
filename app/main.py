@@ -4,7 +4,7 @@ from dishka import make_container
 from dishka.integrations.fastapi import DishkaRoute, setup_dishka
 
 from app.api.routes import router as alerts_router
-from app.core import config
+from app.core.config import settings
 from app.di import AppProvider
 
 
@@ -17,7 +17,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.settings.cors_allow_origins,
+    allow_origins=settings.cors_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

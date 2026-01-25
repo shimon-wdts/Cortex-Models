@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 
 from app.clients.pas import PasClient
-from app.core import config
+from app.core.config import settings
 from app.models.schemas import RejectPayload
 from app.services import alerts
 
@@ -30,7 +30,7 @@ def acknowledge(alert_id: str, pas: FromDishka[PasClient]):
 
     try:
         pas_result = pas.publish_topic_message(
-            config.settings.pas_decision_topic, decision_payload
+            settings.pas_decision_topic, decision_payload
         )
     except Exception as exc:
         pas_result = {"error": str(exc)}
@@ -56,7 +56,7 @@ def reject(alert_id: str, payload: RejectPayload, pas: FromDishka[PasClient]):
 
     try:
         pas_result = pas.publish_topic_message(
-            config.settings.pas_decision_topic, decision_payload
+            settings.pas_decision_topic, decision_payload
         )
     except Exception as exc:
         pas_result = {"error": str(exc)}
