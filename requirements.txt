@@ -4,5 +4,6 @@ pandas==3.0.0
 requests==2.32.5
 uvicorn==0.40.0
 dishka==1.7.2
-dynaconf
+dynaconf==3.2.12
 numpy==1.26.4
+colorlog==6.8.2

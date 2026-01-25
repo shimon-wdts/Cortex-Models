@@ -5,8 +5,11 @@ from dishka.integrations.fastapi import DishkaRoute, setup_dishka
 
 from app.api.routes import router as alerts_router
 from app.core.config import settings
+from app.core.logging import init_logging
 from app.di import AppProvider
 
+
+init_logging()
 
 app = FastAPI(
     title="Casino Intervention API",

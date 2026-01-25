@@ -7,6 +7,7 @@ pas_base_url: https://YOUR-PAS-ENDPOINT
 pas_partner_id: your-partner-id
 pas_api_key: your-api-key
 pas_decision_topic: inspection-decisions
+log_level: INFO
 cors_allow_origins:
   - http://localhost:3000
   - http://127.0.0.1:3000
