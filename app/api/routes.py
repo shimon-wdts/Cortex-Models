@@ -1,10 +1,10 @@
 from typing import Optional
 
 from fastapi import APIRouter
+from dynaconf import Dynaconf
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 
 from app.clients.pas import PasClient
-from app.core.config import settings
 from app.models.schemas import RejectPayload
 from app.services import alerts
 
@@ -23,7 +23,11 @@ def list_fill(
 
 
 @router.post("/alerts/acknowledge/{alert_id}")
-def acknowledge(alert_id: str, pas: FromDishka[PasClient]):
+def acknowledge(
+    alert_id: str,
+    pas: FromDishka[PasClient],
+    settings: FromDishka[Dynaconf],
+):
     alerts.save_ack(alert_id, status="acknowledged", reason="", user="")
 
     decision_payload = alerts.build_decision_payload(alert_id, "ACCEPTED", "", "")
@@ -39,7 +43,12 @@ def acknowledge(alert_id: str, pas: FromDishka[PasClient]):
 
 
 @router.post("/alerts/reject/{alert_id}")
-def reject(alert_id: str, payload: RejectPayload, pas: FromDishka[PasClient]):
+def reject(
+    alert_id: str,
+    payload: RejectPayload,
+    pas: FromDishka[PasClient],
+    settings: FromDishka[Dynaconf],
+):
     alerts.save_ack(
         alert_id=alert_id,
         status="rejected",
