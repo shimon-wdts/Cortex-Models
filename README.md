@@ -6,3 +6,9 @@ Cortex‑Models is a high‑performance ML inference service providing fast, uni
 ```bash
 uvicorn app.main:app --reload
 ```
+
+## Configuration (Dynaconf)
+
+Settings are loaded from `config/settings.yaml` with optional local overrides in
+`config/settings.local.yaml`. Switch environments with `CORTEX_ENV=dev|uat|prod`.
+Environment variables with the `CORTEX_` prefix override YAML values (highest precedence).

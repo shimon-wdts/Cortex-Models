@@ -1,0 +1,12 @@
+# Base/default settings
+
+data_dir: data
+alerts_csv_name: predictive_fill_top_alerts_v10.csv
+ack_file_name: acknowledged_alerts_v10.csv
+pas_base_url: https://YOUR-PAS-ENDPOINT
+pas_partner_id: your-partner-id
+pas_api_key: your-api-key
+pas_decision_topic: inspection-decisions
+cors_allow_origins:
+  - http://localhost:3000
+  - http://127.0.0.1:3000

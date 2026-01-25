@@ -1,19 +1,29 @@
 import os
 
-
-def _split_csv(value: str):
-    return [v.strip() for v in value.split(",") if v.strip()]
+from dynaconf import Dynaconf
 
 
-DATA_DIR = os.getenv("DATA_DIR", "data")
-ALERTS_CSV_V10 = os.path.join(DATA_DIR, "predictive_fill_top_alerts_v10.csv")
-ACK_FILE = os.path.join(DATA_DIR, "acknowledged_alerts_v10.csv")
-
-PAS_BASE_URL = os.getenv("PAS_BASE_URL", "https://YOUR-PAS-ENDPOINT")
-PAS_PARTNER_ID = os.getenv("PAS_PARTNER_ID", "your-partner-id")
-PAS_API_KEY = os.getenv("PAS_API_KEY", "your-api-key")
-PAS_DECISION_TOPIC = os.getenv("PAS_DECISION_TOPIC", "inspection-decisions")
-
-CORS_ALLOW_ORIGINS = _split_csv(
-    os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+settings = Dynaconf(
+    settings_files=[
+        "config/settings.yaml",
+        "config/settings.dev.yaml",
+        "config/settings.uat.yaml",
+        "config/settings.prod.yaml",
+        "config/settings.local.yaml",
+    ],
+    environments=False,
+    env_switcher="CORTEX_ENV",
+    envvar_prefix="CORTEX",
+    load_dotenv=True,
 )
+
+DATA_DIR = settings.data_dir
+ALERTS_CSV_V10 = os.path.join(DATA_DIR, settings.alerts_csv_name)
+ACK_FILE = os.path.join(DATA_DIR, settings.ack_file_name)
+
+PAS_BASE_URL = settings.pas_base_url
+PAS_PARTNER_ID = settings.pas_partner_id
+PAS_API_KEY = settings.pas_api_key
+PAS_DECISION_TOPIC = settings.pas_decision_topic
+
+CORS_ALLOW_ORIGINS = settings.cors_allow_origins
