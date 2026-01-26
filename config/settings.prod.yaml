@@ -1,3 +1,9 @@
-pas_base_url: https://pas.example.com
+log:
+  level: INFO
+  disable_existing_loggers: true
+
 cors_allow_origins:
   - https://your-prod-ui.example.com
+
+pas:
+  base_url: https://pas.example.com

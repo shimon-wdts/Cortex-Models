@@ -34,7 +34,7 @@ def acknowledge(
 
     try:
         pas_result = pas.publish_topic_message(
-            settings.pas_decision_topic, decision_payload
+            settings.pas.decision_topic, decision_payload
         )
     except Exception as exc:
         pas_result = {"error": str(exc)}
@@ -65,7 +65,7 @@ def reject(
 
     try:
         pas_result = pas.publish_topic_message(
-            settings.pas_decision_topic, decision_payload
+            settings.pas.decision_topic, decision_payload
         )
     except Exception as exc:
         pas_result = {"error": str(exc)}

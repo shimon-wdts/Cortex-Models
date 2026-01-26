@@ -13,7 +13,7 @@ class AppProvider(Provider):
     @provide(scope=Scope.APP)
     def pas_client(self, dynaconf_settings: Dynaconf) -> PasClient:
         return PasClient(
-            base_url=dynaconf_settings.pas_base_url,
-            partner_id=dynaconf_settings.pas_partner_id,
-            api_key=dynaconf_settings.pas_api_key,
+            base_url=dynaconf_settings.pas.base_url,
+            partner_id=dynaconf_settings.pas.partner_id,
+            api_key=dynaconf_settings.pas.api_key,
         )

@@ -1,1 +1,6 @@
-pas_base_url: https://uat-pas.example.com
+log:
+  level: INFO
+  disable_existing_loggers: true
+
+pas:
+  base_url: https://uat-pas.example.com

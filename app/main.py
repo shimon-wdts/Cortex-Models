@@ -12,8 +12,8 @@ from app.di import AppProvider
 init_logging()
 
 app = FastAPI(
-    title="Casino Intervention API",
-    version="v10",
+    title=settings.app.name,
+    version=settings.app.version,
     description="Predicted chip-fill decisions, ROI, and rationale (v10).",
     route_class=DishkaRoute,
 )

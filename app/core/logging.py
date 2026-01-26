@@ -12,13 +12,16 @@ def init_logging() -> None:
     if _configured:
         return
 
-    level_name = str(settings.get("log_level", "INFO")).upper()
+    level_name = str(settings.get("log.level", "INFO")).upper()
     level = getattr(logging, level_name, logging.INFO)
+    disable_existing_loggers = bool(
+        settings.get("log.disable_existing_loggers", False)
+    )
 
     logging.config.dictConfig(
         {
             "version": 1,
-            "disable_existing_loggers": False,
+            "disable_existing_loggers": disable_existing_loggers,
             "formatters": {
                 "standard": {
                     "()": "colorlog.ColoredFormatter",
