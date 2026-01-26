@@ -21,6 +21,12 @@ init_logging()
 async def lifespan(_app: FastAPI):
     logger.info( "CORTEX_ENV=%s ", os.getenv("CORTEX_ENV", ""))
     logger.info("loaded_files=%s", getattr(settings, "_loaded_files", []))
+    logger.info("app=%s, version=%s",
+        settings.app.name,
+        settings.app.version,
+    )    
+    logger.info("cors_allow_origins=%s", settings.cors_allow_origins)    
+
     yield
 
 app = FastAPI(

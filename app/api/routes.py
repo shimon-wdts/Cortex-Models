@@ -11,7 +11,9 @@ from app.services import alerts
 
 router = APIRouter(route_class=DishkaRoute)
 
-
+# ================================
+# ENDPOINT: LIST ALERTS
+# ================================
 @router.get("/alerts/fill")
 def list_fill(
     limit: int = 12,
@@ -21,10 +23,11 @@ def list_fill(
 ):
     return alerts.list_fill(limit=limit, offset=offset, start_time=start_time, end_time=end_time)
 
-
+# ================================
+# ENDPOINT: ACKNOWLEDGE
+# ================================
 @router.post("/alerts/acknowledge/{alert_id}")
-def acknowledge(
-    alert_id: str,
+def acknowledge(alert_id: str, 
     pas: FromDishka[PasClient],
     settings: FromDishka[Dynaconf],
 ):
@@ -42,6 +45,9 @@ def acknowledge(
     return {"ok": True, "alert_id": alert_id, "status": "acknowledged", "pas": pas_result}
 
 
+# ================================
+# ENDPOINT: REJECT
+# ================================
 @router.post("/alerts/reject/{alert_id}")
 def reject(
     alert_id: str,

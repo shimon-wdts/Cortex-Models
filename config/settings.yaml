@@ -15,6 +15,7 @@ data:
   dir: data
   alerts_csv_name: predictive_fill_top_alerts_v10.csv
   ack_file_name: acknowledged_alerts_v10.csv
+  ack_columns: ["alert_id", "ack_time", "status", "reason", "user"]
 
 pas:
   base_url: https://YOUR-PAS-ENDPOINT

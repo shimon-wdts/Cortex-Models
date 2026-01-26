@@ -9,9 +9,6 @@ from app.core.config import settings
 from app.models.schemas import FillCard, Rationale
 
 
-ACK_COLUMNS = ["alert_id", "ack_time", "status", "reason", "user"]
-
-
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -20,7 +17,7 @@ def build_decision_payload(alert_id: str, status: str, reason: str, user: str):
     return {
         "decisionId": f"dec-{alert_id}-{int(datetime.now().timestamp())}",
         "alertId": alert_id,
-        "decision": status.upper(),
+        "decision": status.upper(),   # ACCEPTED / REJECTED
         "reason": reason or "",
         "user": user or "",
         "decidedAt": now_iso(),
@@ -45,11 +42,11 @@ def _load_ack_df() -> pd.DataFrame:
     )
     if os.path.exists(ack_file_path):
         df = pd.read_csv(ack_file_path)
-        for col in ACK_COLUMNS:
+        for col in settings.data.ack_columns:
             if col not in df.columns:
                 df[col] = ""
-        return df[ACK_COLUMNS]
-    return pd.DataFrame(columns=ACK_COLUMNS)
+        return df[settings.data.ack_columns]
+    return pd.DataFrame(columns=settings.data.ack_columns)
 
 
 def save_ack(alert_id: str, status: str, reason: str = "", user: str = "") -> None:
@@ -130,11 +127,19 @@ def _pretty_rationale(r: dict) -> str:
 
 
 def _is_exportable_alert(row: pd.Series) -> bool:
+    """
+    Decide whether this alert should be exportable.
+    Minimal rule: if it has core fields required for a CSV row.
+    Adjust as needed (or drive this by a CSV column).
+    """
     required = ["alert_id", "table_id", "updated", "predicted_time_to_depletion_min"]
     return all(str(row.get(k, "")).strip() != "" for k in required)
 
 
 def _build_exportable_content(row: pd.Series, card: FillCard) -> dict:
+    """
+    A compact, CSV-friendly payload. Web can flatten/stringify as needed.
+    """
     rec_type = card.types[0] if card.types else None
     rec_ttd = card.time_to_depletion_min[0] if card.time_to_depletion_min else None
     rec_impact = card.modeled_impact_per_hr[0] if card.modeled_impact_per_hr else None
@@ -159,11 +164,15 @@ def _build_exportable_content(row: pd.Series, card: FillCard) -> dict:
         "recommended_roi_unit": rec_roi_unit,
         "recommended_recommendation": rec_text,
         "recommended_rationale": rec_rationale,
+        # Optional extra raw fields from the row
         "predicted_time_to_depletion_min": row.get("predicted_time_to_depletion_min"),
         "expected_deficit": row.get("expected_deficit"),
     }
 
 
+# -----------------------
+# Card builder
+# -----------------------
 def _row_to_card(row: pd.Series) -> FillCard:
     types = _safe_json_load(row.get("types_json"), [])
     impacts = _safe_json_load(row.get("modeled_impact_per_hr_json"), [])
@@ -213,7 +222,7 @@ def _row_to_card(row: pd.Series) -> FillCard:
         x_labels = [str(x) for x in x_labels_raw]
     else:
         n = len(processed_chart_series[0][0]) if processed_chart_series else 0
-        x_labels = [f"Point {i + 1}" for i in range(n)]
+        x_labels = [f"Point {i+1}" for i in range(n)]
 
     severity = _severity_from_ttd(row.get("predicted_time_to_depletion_min"))
     option_count = int(row.get("option_count") or len(types))
@@ -240,7 +249,13 @@ def _row_to_card(row: pd.Series) -> FillCard:
         rationale=rationale_objs[:option_count],
     )
 
+
+    # ✅ NEW: isActionable
+    # This service supports both /alerts/acknowledge/{id} and /alerts/reject/{id},
+    # so we can mark these alerts actionable.
     card.isActionable = True
+
+    # ✅ NEW: isExportable + exportable_content
     card.isExportable = _is_exportable_alert(row)
     card.exportable_content = _build_exportable_content(row, card) if card.isExportable else None
 
