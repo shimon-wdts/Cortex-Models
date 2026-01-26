@@ -1,3 +1,7 @@
+from contextlib import asynccontextmanager
+import logging
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dishka import make_container
@@ -9,13 +13,22 @@ from app.core.logging import init_logging
 from app.di import AppProvider
 
 
+logger = logging.getLogger(__name__)
+
 init_logging()
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logger.info( "CORTEX_ENV=%s ", os.getenv("CORTEX_ENV", ""))
+    logger.info("loaded_files=%s", getattr(settings, "_loaded_files", []))
+    yield
 
 app = FastAPI(
     title=settings.app.name,
     version=settings.app.version,
     description="Predicted chip-fill decisions, ROI, and rationale (v10).",
     route_class=DishkaRoute,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -30,3 +43,4 @@ app.include_router(alerts_router)
 
 container = make_container(AppProvider())
 setup_dishka(container, app)
+

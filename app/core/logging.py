@@ -45,12 +45,9 @@ def init_logging() -> None:
             },
             "root": {"level": level, "handlers": ["console"]},
             "loggers": {
-                "": {  # root logger
-                    "handlers": ["console"],
-                    "level": level,
-                },
-                "uvicorn.error": {"level": level, "handlers": ["console"]},
-                "uvicorn.access": {"level": level, "handlers": ["console"]},
+                "app": {"level": level, "propagate": True},
+                "uvicorn.error": {"level": level, "handlers": ["console"], "propagate": False},
+                "uvicorn.access": {"level": level,  "handlers": ["console"], "propagate": False},
             },
         }
     )
