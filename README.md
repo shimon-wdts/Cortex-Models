@@ -3,9 +3,36 @@ Cortex‑Models is a high‑performance ML inference service exposing unified AP
 
 ## Quick Start
 
+Docker (recommended):
+
+```bash
+docker build -t cortex-models .
+docker run --rm -p 8000:8000 cortex-models
+```
+
+Local (Python):
+
 ```bash
 python -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+Windows PowerShell:
+
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+Windows CMD:
+
+```bat
+python -m venv venv
+venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
@@ -28,6 +55,15 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 The service listens on port 8000. Docs endpoint: `http://127.0.0.1:8000/docs`.
+
+## API Overview
+
+- `GET /health` — health check
+- `GET /alerts/fill` — list fill alerts (supports `limit`, `offset`, `start_time`, `end_time`)
+- `POST /alerts/acknowledge/{alert_id}` — acknowledge an alert
+- `POST /alerts/reject/{alert_id}` — reject an alert with a payload
+
+For request/response schemas, see the interactive docs at `/docs`.
 
 ## Docker (build and run)
 
@@ -54,3 +90,8 @@ docker run --rm -p 8000:8000 -e CORTEX_ENV=prod cortex-models
 Settings are loaded from `config/settings.yaml` with optional local overrides in
 `config/settings.local.yaml`. Switch environments with `CORTEX_ENV=dev|uat|prod`.
 Environment variables with the `CORTEX_` prefix override YAML values (highest precedence).
+
+Common environment variables:
+
+- `CORTEX_ENV` — select the environment (`dev`, `uat`, `prod`)
+- `CORTEX_*` — override any Dynaconf setting via env vars

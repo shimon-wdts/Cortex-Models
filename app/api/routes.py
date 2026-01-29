@@ -12,6 +12,13 @@ from app.services import alerts
 router = APIRouter(route_class=DishkaRoute)
 
 # ================================
+# ENDPOINT: HEALTH
+# ================================
+@router.get("/health")
+def health():
+    return {"ok": True}
+
+# ================================
 # ENDPOINT: LIST ALERTS
 # ================================
 @router.get("/alerts/fill")
