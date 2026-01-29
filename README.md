@@ -12,7 +12,7 @@ It is designed for **low‑latency**, **reliable**, and **real‑time decisionin
 ```bash
 docker build -t cortex-models .
 docker run --rm -p 8000:8000 cortex-models
-``
+```
 
 
 Local (Python):
