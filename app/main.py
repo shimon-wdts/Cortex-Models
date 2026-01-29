@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dishka import make_container
 from dishka.integrations.fastapi import DishkaRoute, setup_dishka
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.routes import router as alerts_router
 from app.core.config import settings
@@ -50,3 +51,5 @@ app.include_router(alerts_router)
 container = make_container(AppProvider())
 setup_dishka(container, app)
 
+# Expose Prometheus metrics at /metrics for cluster scraping.
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")

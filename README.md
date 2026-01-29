@@ -59,6 +59,7 @@ The service listens on port 8000. Docs endpoint: `http://127.0.0.1:8000/docs`.
 ## API Overview
 
 - `GET /health` — health check
+- `GET /metrics` — Prometheus metrics
 - `GET /alerts/fill` — list fill alerts (supports `limit`, `offset`, `start_time`, `end_time`)
 - `POST /alerts/acknowledge/{alert_id}` — acknowledge an alert
 - `POST /alerts/reject/{alert_id}` — reject an alert with a payload
@@ -95,3 +96,15 @@ Common environment variables:
 
 - `CORTEX_ENV` — select the environment (`dev`, `uat`, `prod`)
 - `CORTEX_*` — override any Dynaconf setting via env vars
+
+## Kubernetes scraping (Prometheus)
+
+If you use annotations:
+
+```yaml
+prometheus.io/scrape: "true"
+prometheus.io/port: "8000"
+prometheus.io/path: "/metrics"
+```
+
+If you use a ServiceMonitor (Prometheus Operator), configure a `/metrics` endpoint on port 8000.

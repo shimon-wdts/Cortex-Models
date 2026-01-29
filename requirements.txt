@@ -7,3 +7,4 @@ dishka==1.7.2
 dynaconf==3.2.12
 numpy==1.26.4
 colorlog==6.8.2
+prometheus-fastapi-instrumentator==7.1.0
