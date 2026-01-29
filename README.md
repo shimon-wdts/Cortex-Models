@@ -1,17 +1,23 @@
 # Cortex-Models
-Cortex‑Models is a high‑performance ML inference service exposing unified APIs for predictive models (e.g., table‑fill and advantageous‑shoe estimators). It is built for low‑latency, reliable, real‑time decisioning within the Cortex platform.
+
+**Cortex‑Models** is a high‑performance machine‑learning inference service that exposes unified APIs for predictive models (for example, table‑fill and advantageous‑shoe estimators).
+It is designed for **low‑latency**, **reliable**, and **real‑time decisioning** within the Cortex platform.
+
+---
 
 ## Quick Start
 
-Docker (recommended):
+### Docker (recommended)
 
 ```bash
 docker build -t cortex-models .
 docker run --rm -p 8000:8000 cortex-models
-```
+``
+
 
 Local (Python):
 
+macOS / Linux
 ```bash
 python -m venv venv
 source venv/bin/activate
