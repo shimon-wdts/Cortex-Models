@@ -209,3 +209,5 @@ __marimo__/
 
 #OSX files
 .DS_Store
+WIP/
+node_modules/
