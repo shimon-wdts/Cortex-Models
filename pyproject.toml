@@ -1,0 +1,51 @@
+[project]
+name = "cortex-models"
+version = "0.1.0"
+description = "Model inference platform for Cortex Floor and Table Guard"
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "fastapi==0.136.3",
+    "pydantic==2.12.5",
+    "pandas==2.3.3",
+    "requests==2.32.5",
+    "uvicorn==0.40.0",
+    "dishka==1.7.2",
+    "dynaconf==3.2.12",
+    "numpy==1.26.4",
+    "colorlog==6.8.2",
+    "prometheus-fastapi-instrumentator==8.0.0",
+    "prefect==3.7.4",
+    "sqlalchemy==2.0.41",
+    "psycopg[binary]==3.2.9",
+    "confluent-kafka==2.11.1",
+    "mlflow==3.1.4"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    "pytest-asyncio>=1.1",
+    "ruff>=0.12",
+    "mypy>=1.17",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["WIP*", "config*", "node_modules*"]

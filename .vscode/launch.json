@@ -10,6 +10,13 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal"
+        },
+       {
+            "name": "Python: Perfect Server",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "prefect",
+            "args": ["server", "start"]
         }
     ]
 }
