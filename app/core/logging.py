@@ -17,23 +17,31 @@ def init_logging() -> None:
     disable_existing_loggers = bool(
         settings.get("log.disable_existing_loggers", False)
     )
+    try:
+        import colorlog  # noqa: F401
+    except ModuleNotFoundError:
+        formatter = {
+            "format": "%(asctime)s %(levelname)s: %(message)s",
+        }
+    else:
+        formatter = {
+            "()": "colorlog.ColoredFormatter",
+            "format": "%(log_color)s%(asctime)s %(levelname)s:%(reset)s %(message)s",
+            "log_colors": {
+                "DEBUG": "cyan",
+                "INFO": "green",
+                "WARNING": "yellow",
+                "ERROR": "red",
+                "CRITICAL": "bold_red",
+            },
+        }
 
     logging.config.dictConfig(
         {
             "version": 1,
             "disable_existing_loggers": disable_existing_loggers,
             "formatters": {
-                "standard": {
-                    "()": "colorlog.ColoredFormatter",
-                    "format": "%(log_color)s%(asctime)s %(levelname)s:%(reset)s %(message)s",
-                    "log_colors": {
-                        "DEBUG": "cyan",
-                        "INFO": "green",
-                        "WARNING": "yellow",
-                        "ERROR": "red",
-                        "CRITICAL": "bold_red",
-                    },
-                }
+                "standard": formatter
             },
             "handlers": {
                 "console": {

@@ -1,0 +1,95 @@
+# Model registry. Environment-specific overrides can live in config/models.dev.yaml,
+# config/models.uat.yaml, and config/models.prod.yaml.
+model_registry:
+  prefect:
+    work_pool_name: cortex-models
+    work_pool_type: process
+    work_queue_name: default
+    deployment_prefix: cortex
+
+  postgres:
+    replica_url: postgresql+psycopg://readonly:readonly@postgres-replica:5432/cortex
+
+  kafka:
+    bootstrap_servers: localhost:9092
+    client_id: cortex-models
+    acks: all
+
+  models:
+    player_performance:
+      enabled: true
+      type: PlayerPerformance
+      source: cortex.models.player-performance
+      env: local
+      output_schema_version: 1.0
+      severity_default: critical
+
+      schedule:
+        enabled: false
+        type: cron
+        cron: "*/15 * * * *"
+        timezone: UTC
+        concurrency_limit: 1
+
+      queries:
+        - name: player_window
+          sql: |
+            SELECT
+              table_id,
+              player_id,
+              bet_id,
+              game_id,
+              topology_id,
+              gaming_day,
+              ev_per_hour,
+              segment_baseline_ev_per_hour
+            FROM mart.player_performance_window
+            WHERE gaming_day = :gaming_day
+          params:
+            gaming_day: "{{ gaming_day }}"
+
+      features:
+        version: "1.0"
+        builder: app.features.builders:identity_feature_builder
+        params: {}
+
+      model_store:
+        provider: mlflow
+        tracking_uri: http://mlflow:5000
+        registered_model_name: PlayerPerformance
+        version: "10.2.0"
+
+      inference:
+        adapter: app.inference.prediction_adapters:default_predict_adapter
+        params: {}
+
+      output:
+        adapter: app.inference.prediction_adapters:generic_insight_event_adapter
+        entity_mappings:
+          - type: TABLE
+            field: table_id
+            present_in_user_interface: true
+          - type: Player
+            field: player_id
+            present_in_user_interface: true
+          - type: bet_id
+            field: bet_id
+            present_in_user_interface: false
+          - type: game_id
+            field: game_id
+            present_in_user_interface: false
+          - type: topology_id
+            field: topology_id
+            present_in_user_interface: false
+        actions:
+          available: ["approve", "decline", "export"]
+          default: archive
+          time_to_live: 45
+          requires_reason_on: ["decline"]
+          export:
+            formats: ["pdf", "csv"]
+            scope: recommendation
+
+      kafka:
+        topic: cortex.insights.player-performance
+        key_field: Player

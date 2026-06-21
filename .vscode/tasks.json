@@ -1,0 +1,40 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Prefect: Start Server And Deployments",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/prefect-dev.sh start",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PREFECT_API_URL": "http://127.0.0.1:4200/api",
+                    "CORTEX_ENV": "local"
+                }
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Prefect: Stop Server",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/prefect-dev.sh stop",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Prefect: Deploy Models",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/prefect-dev.sh deploy",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PREFECT_API_URL": "http://127.0.0.1:4200/api",
+                    "CORTEX_ENV": "local"
+                }
+            },
+            "problemMatcher": []
+        }
+    ]
+}

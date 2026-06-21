@@ -114,3 +114,167 @@ prometheus.io/path: "/metrics"
 ```
 
 If you use a ServiceMonitor (Prometheus Operator), configure a `/metrics` endpoint on port 8000.
+
+## Inference Platform Architecture
+
+This service separates orchestration from model business logic:
+
+- **Prefect** is the model orchestration control plane. It owns scheduling, manual runs, retries, run state, execution history, and workers.
+- **FastAPI** currently contains existing alert endpoints only; model deployment runs are triggered from Prefect UI, CLI, or API.
+- **Postgres replica** is the operational data source for batch extraction.
+- **Feature builders** are configurable Python callables that convert raw query results into model-ready features.
+- **Model loading** is abstracted behind `app.clients.model_store`; MLflow is the default implementation.
+- **Kafka** is used only to publish validated insight events after inference.
+
+Scheduled and manually triggered runs execute the same Prefect flow code. Scheduled full-pipeline deployments default to `execution_mode=scheduled`; manual runs can override `execution_mode=manual`, and step deployments default to `manual`.
+
+## Folder Layout
+
+```text
+app/
+  api/
+    routes.py             # Existing alert endpoints
+  clients/
+    kafka.py              # Kafka prediction publisher
+    model_store.py        # MLflow/custom model loading abstraction
+    postgres.py           # Postgres replica query client
+  features/
+    builders.py           # Feature builder callables
+  flows/
+    deployments.py        # Config-driven Prefect deployment helper
+    inference.py          # Full pipeline and step-level Prefect flows
+  inference/
+    prediction_adapters.py # Inference/output event adapters
+  models/
+    pipeline_contracts.py # Config, pipeline, and Kafka event schemas
+  services/
+    model_registry.py     # Reads model configs from Dynaconf
+    observability.py      # Structured step logs and metrics
+    pipeline.py           # Testable pipeline business logic
+config/
+  models.yaml             # Model registry and sample PlayerPerformance config
+```
+
+## Model Config
+
+Model behavior is driven by `config/models.yaml`, with optional environment overrides in `config/models.dev.yaml`, `config/models.uat.yaml`, and `config/models.prod.yaml`.
+
+Each model defines:
+
+- `enabled`
+- `type` and `source`
+- `schedule`
+- SQL `queries`
+- feature builder path and `feature_version`
+- model store provider and `model_version`
+- inference adapter
+- output adapter and entity mappings
+- Kafka topic and key
+
+The default sample config defines `player_performance` for a `PlayerPerformance` model with MLflow version `10.2.0`, feature version `1.0`, a cron schedule, and Kafka topic `cortex.insights.player-performance`.
+
+## Kafka Insight Event
+
+Every published prediction is validated as an `InsightEvent` before publishing. The event carries:
+
+- `insights_id`
+- `occurred_at`
+- `gaming_day`
+- `source`
+- `env`
+- `version`
+- `model.type`
+- `model.version`
+- `model.feature_version`
+- `model.run_id`
+- `entity`
+- `severity`
+- `payload`
+
+The generic output adapter maps configured entity fields into the `entity` list and places model-specific output into `payload.result`, `payload.presentation`, and `payload.actions`.
+
+## Prefect Flow Design
+
+Full pipeline flow:
+
+```text
+cortex-model-pipeline
+  extract_data_task
+  feature_engineering_task
+  inference_task
+  publish_predictions_task
+```
+
+Step-level flow:
+
+```text
+cortex-model-step
+  single_step_task(step=extract_data | feature_engineering | inference | publish)
+```
+
+Create/update deployments from config:
+
+```bash
+python -m app.flows.deployments
+```
+
+Run a local process worker:
+
+```bash
+prefect worker start -p cortex-models --type process
+```
+
+For production, use a work pool that matches the runtime platform, usually Kubernetes or Docker. Schedules should be changed through Prefect deployment configuration, not by adding scheduler code to this service.
+
+## Manual Runs
+
+Trigger deployment runs from Prefect UI or CLI. For example, trigger the full pipeline:
+
+```bash
+prefect deployment run 'cortex-model-pipeline/player_performance' \
+  --param model_name=player_performance \
+  --param execution_mode=manual \
+  --param parameters='{"gaming_day":"2026-06-07"}'
+```
+
+Trigger feature engineering only:
+
+```bash
+prefect deployment run 'cortex-model-step/player_performance-feature_engineering' \
+  --param model_name=player_performance \
+  --param step=feature_engineering \
+  --param inputs='{"raw_records":[{"table_id":"BA0054","player_id":"676767","gaming_day":"2026-06-07"}]}'
+```
+
+## Observability
+
+Each pipeline step emits structured JSON log events:
+
+- `model_step_started`
+- `model_step_completed`
+- `model_step_failed`
+- `model_step_rows`
+
+Prometheus metrics include model/run labels:
+
+- `model_step_runs_total`
+- `model_step_duration_seconds`
+- `model_step_rows_total`
+- `model_predictions_published_total`
+
+Task failures are captured at the step boundary with `failure_type` and `failure_reason`, while Prefect remains the source of truth for task and flow states.
+
+## Batch And Streaming-Like Models
+
+Batch models should use scheduled `cortex-model-pipeline` deployments with cron, interval, or rrule schedules.
+
+Near-real-time models should still use Prefect deployments, but usually with:
+
+- disabled or no schedule
+- manual or event-triggered runs
+- tighter concurrency limits
+- smaller query windows
+- idempotency keys from the caller
+- a dedicated Kafka topic per model group where needed
+
+For very high-frequency streaming workloads, keep Kafka as the event distribution layer and consider a separate consumer that triggers bounded Prefect runs or performs micro-batch aggregation. Avoid adding a polling scheduler inside this project.

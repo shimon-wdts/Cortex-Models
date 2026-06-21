@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 
 dependencies = [
-    "fastapi==0.136.3",
+    "fastapi<0.136",
     "pydantic==2.12.5",
     "pandas==2.3.3",
     "requests==2.32.5",
@@ -16,7 +16,7 @@ dependencies = [
     "numpy==1.26.4",
     "colorlog==6.8.2",
     "prometheus-fastapi-instrumentator==8.0.0",
-    "prefect==3.7.4",
+    "prefect==3.7.5",
     "sqlalchemy==2.0.41",
     "psycopg[binary]==3.2.9",
     "confluent-kafka==2.11.1",

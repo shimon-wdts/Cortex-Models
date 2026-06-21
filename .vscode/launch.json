@@ -11,12 +11,32 @@
             "program": "${file}",
             "console": "integratedTerminal"
         },
-       {
-            "name": "Python: Perfect Server",
+        {
+            "name": "Python: Prefect Server",
             "type": "debugpy",
             "request": "launch",
             "module": "prefect",
-            "args": ["server", "start"]
+            "args": ["server", "start"],
+            "env": {
+                "PREFECT_API_URL": "http://127.0.0.1:4200/api",
+                "CORTEX_ENV": "local"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Prefect Worker",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "prefect",
+            "args": ["worker", "start", "-p", "cortex-models", "--type", "process"],
+            "env": {
+                "PREFECT_API_URL": "http://127.0.0.1:4200/api",
+                "CORTEX_ENV": "local"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "preLaunchTask": "Prefect: Start Server And Deployments"
         }
     ]
 }
