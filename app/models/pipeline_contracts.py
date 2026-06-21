@@ -76,6 +76,8 @@ class ModelPipelineConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     enabled: bool = True
+    description: str = ""
+    version: str = "1.0.0"
     type: str
     source: str
     env: str = "local"

@@ -162,6 +162,7 @@ Model behavior is driven by `config/models.yaml`, with optional environment over
 Each model defines:
 
 - `enabled`
+- `description` and `version`
 - `type` and `source`
 - `schedule`
 - SQL `queries`

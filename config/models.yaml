@@ -18,6 +18,8 @@ model_registry:
   models:
     player_performance:
       enabled: true
+      description: Player performance inference pipeline
+      version: "1.0.0"
       type: PlayerPerformance
       source: cortex.models.player-performance
       env: local
