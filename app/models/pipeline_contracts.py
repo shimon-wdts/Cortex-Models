@@ -33,6 +33,7 @@ class QueryConfig(BaseModel):
     name: str
     sql: str
     params: dict[str, Any] = Field(default_factory=dict)
+    df_columns: list[str] = Field(default_factory=list)
 
 
 class FeatureConfig(BaseModel):

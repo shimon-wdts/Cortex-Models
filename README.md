@@ -166,6 +166,7 @@ Each model defines:
 - `type` and `source`
 - `schedule`
 - SQL `queries`
+- query `df_columns` for preserving schemas on empty query results
 - feature builder path and `feature_version`
 - model store provider and `model_version`
 - inference adapter
@@ -244,7 +245,7 @@ Trigger feature engineering only:
 prefect deployment run 'cortex-model-step/player_performance-feature_engineering' \
   --param model_name=player_performance \
   --param step=feature_engineering \
-  --param inputs='{"raw_records":[{"table_id":"BA0054","player_id":"676767","gaming_day":"2026-06-07"}]}'
+  --param inputs='{"raw_data":{"player_window":[{"table_id":"BA0054","player_id":"676767","gaming_day":"2026-06-07"}]}}'
 ```
 
 ## Observability

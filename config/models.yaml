@@ -16,12 +16,12 @@ model_registry:
     acks: all
 
   models:
-    player_performance:
+    predicted_fills:
       enabled: true
-      description: Player performance inference pipeline
+      description: Predicted Fills inference pipeline
       version: "1.0.0"
-      type: PlayerPerformance
-      source: cortex.models.player-performance
+      type: PredictedFills
+      source: cortex.models.predicted-fills
       env: local
       output_schema_version: 1.0
       severity_default: critical
@@ -34,21 +34,85 @@ model_registry:
         concurrency_limit: 1
 
       queries:
-        - name: player_window
+        - name: load_tray_scans
           sql: |
             SELECT
               table_id,
-              player_id,
-              bet_id,
-              game_id,
-              topology_id,
-              gaming_day,
-              ev_per_hour,
-              segment_baseline_ev_per_hour
-            FROM mart.player_performance_window
-            WHERE gaming_day = :gaming_day
+              total_tray_value AS tray_balance,
+              scan_dtm AS tray_ts
+            FROM t_cage_chip_tray_scan
+            WHERE scan_dtm <= :end_ts
+              AND table_id IS NOT NULL
+              AND scan_dtm IS NOT NULL
           params:
-            gaming_day: "{{ gaming_day }}"
+            end_ts: "{{ end_ts }}"
+          df_columns: ["table_id", "tray_balance", "tray_ts"]
+
+        - name: load_chip_inventory
+          sql: |
+            SELECT
+              topology_id AS table_id,
+              chip_id,
+              denom,
+              updated_dtm AS updated_ts
+            FROM t_chip
+            WHERE updated_dtm <= :end_ts
+              AND topology_id IS NOT NULL
+              AND denom IS NOT NULL
+          params:
+            end_ts: "{{ end_ts }}"
+          df_columns: ["table_id", "chip_id", "denom", "updated_ts"]
+
+        - name: load_chip_updates
+          sql: |
+            SELECT
+              created_dtm AS update_ts,
+              txn_update_type AS update_type,
+              txn_update_value AS update_value,
+              from_topology_id AS from_table_id,
+              to_topology_id AS to_table_id,
+              chips AS chips_raw
+            FROM t_chip_txn_update
+            WHERE created_dtm >= :start_ts
+              AND created_dtm <= :end_ts
+          params:
+            start_ts: "{{ start_ts }}"
+            end_ts: "{{ end_ts }}"
+          df_columns: ["update_ts", "update_type", "update_value", "from_table_id", "to_table_id", "chips_raw"]
+
+        - name: load_bets
+          sql: |
+            SELECT
+              table_id,
+              payout_complete_dtm AS payout_ts,
+              casino_win,
+              casino_loss_from_nn AS casino_loss
+            FROM t_bet
+            WHERE payout_complete_dtm >= :start_ts
+              AND payout_complete_dtm <= :end_ts
+              AND table_id IS NOT NULL
+              AND payout_complete_dtm IS NOT NULL
+          params:
+            start_ts: "{{ start_ts }}"
+            end_ts: "{{ end_ts }}"
+          df_columns: ["table_id", "payout_ts", "casino_win", "casino_loss"]
+
+        - name: load_fill_events
+          sql: |
+            SELECT
+              topology_id AS table_id,
+              complete_dtm AS fill_ts,
+              txn_value AS fill_amount
+            FROM t_casino_txn
+            WHERE complete_dtm >= :start_ts
+              AND complete_dtm <= :end_ts
+              AND topology_id IS NOT NULL
+              AND complete_dtm IS NOT NULL
+              AND LOWER(type::text) LIKE '%fill%'
+          params:
+            start_ts: "{{ start_ts }}"
+            end_ts: "{{ end_ts }}"
+          df_columns: ["table_id", "fill_ts", "fill_amount"]
 
       features:
         version: "1.0"
@@ -58,7 +122,7 @@ model_registry:
       model_store:
         provider: mlflow
         tracking_uri: http://mlflow:5000
-        registered_model_name: PlayerPerformance
+        registered_model_name: PredictedFills
         version: "10.2.0"
 
       inference:
@@ -93,5 +157,5 @@ model_registry:
             scope: recommendation
 
       kafka:
-        topic: cortex.insights.player-performance
+        topic: cortex.insights.predicted-fills
         key_field: Player

@@ -39,31 +39,34 @@ def create_run_context(
 def extract_data(
     context: RunContext,
     registry: ModelRegistry | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, pd.DataFrame]:
     registry = registry or get_model_registry()
     config = registry.get_model(context.model_name)
     with observe_step(context, PipelineStep.EXTRACT):
         client = PostgresQueryClient(registry.postgres.get("replica_url", ""))
-        frames = [
-            client.query(query.sql, _render_params(query.params, context.parameters))
-            for query in config.queries
-        ]
-        data = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-        record_rows(context, PipelineStep.EXTRACT, len(data))
-        return data.to_dict(orient="records")
+        data: dict[str, pd.DataFrame] = {}
+        rows = 0
+        for query in config.queries:
+            frame = client.query(query.sql, _render_params(query.params, context.parameters))
+            if frame.empty:
+                frame = pd.DataFrame(columns=query.df_columns)
+            data[query.name] = frame
+            rows += len(frame)
+        record_rows(context, PipelineStep.EXTRACT, rows)
+        return data
 
 
 def generate_features(
     context: RunContext,
-    raw_records: list[dict[str, Any]],
+    raw_data: dict[str, Any] | list[dict[str, Any]],
     registry: ModelRegistry | None = None,
 ) -> list[dict[str, Any]]:
     registry = registry or get_model_registry()
     config = registry.get_model(context.model_name)
     with observe_step(context, PipelineStep.FEATURES):
-        raw_data = pd.DataFrame(raw_records)
+        raw_frames = _coerce_raw_data_by_query(raw_data)
         builder = import_callable(config.features.builder)
-        features = builder(raw_data, config.features.params)
+        features = builder(raw_frames, config.features.params)
         if not isinstance(features, pd.DataFrame):
             raise TypeError("Feature builder must return a pandas DataFrame")
         record_rows(context, PipelineStep.FEATURES, len(features))
@@ -149,8 +152,8 @@ def publish_predictions(
 
 def run_full_pipeline(context: RunContext, registry: ModelRegistry | None = None) -> StepResult:
     registry = registry or get_model_registry()
-    raw_records = extract_data(context, registry)
-    feature_records = generate_features(context, raw_records, registry)
+    raw_data = extract_data(context, registry)
+    feature_records = generate_features(context, raw_data, registry)
     prediction_records = run_inference(context, feature_records, registry)
     return publish_predictions(context, prediction_records, feature_records, registry)
 
@@ -165,16 +168,20 @@ def run_step(
     inputs = inputs or {}
 
     if step == PipelineStep.EXTRACT:
-        raw_records = extract_data(context, registry)
+        raw_data = extract_data(context, registry)
         return StepResult(
             model_name=context.model_name,
             run_id=context.run_id,
             step=step,
             status="completed",
-            rows=len(raw_records),
+            rows=sum(len(frame) for frame in raw_data.values()),
         )
     if step == PipelineStep.FEATURES:
-        feature_records = generate_features(context, inputs.get("raw_records", []), registry)
+        feature_records = generate_features(
+            context,
+            inputs.get("raw_data", inputs.get("raw_records", {})),
+            registry,
+        )
         return StepResult(
             model_name=context.model_name,
             run_id=context.run_id,
@@ -216,3 +223,12 @@ def _render_params(params: dict[str, Any], runtime_params: dict[str, Any]) -> di
         else:
             rendered[key] = value
     return rendered
+
+
+def _coerce_raw_data_by_query(raw_data: dict[str, Any] | list[dict[str, Any]]) -> dict[str, pd.DataFrame]:
+    if isinstance(raw_data, dict):
+        return {
+            name: value.copy() if isinstance(value, pd.DataFrame) else pd.DataFrame(value)
+            for name, value in raw_data.items()
+        }
+    return {"default": pd.DataFrame(raw_data)}

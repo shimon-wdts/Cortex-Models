@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import datetime
 from typing import Any
 
-from prefect import flow, task
+from prefect import flow, runtime, task
 
 from app.models.pipeline_contracts import ExecutionMode, PipelineStep, RunContext, StepResult
 from app.services.pipeline import (
@@ -15,17 +16,28 @@ from app.services.pipeline import (
 )
 
 
+def generate_flow_name() -> str:
+    date = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        parameters = runtime.flow_run.parameters or {}
+    except Exception:
+        parameters = {}
+    model_name = parameters.get("model_name", "model")
+    execution_mode = parameters.get("execution_mode", ExecutionMode.SCHEDULED.value)
+    return f"{model_name}-{execution_mode}-{date:%Y-%m-%d_%H-%M-%S}"
+
+
 @task(name="extract-data", retries=2, retry_delay_seconds=30)
-def extract_data_task(context: RunContext) -> list[dict[str, Any]]:
+def extract_data_task(context: RunContext) -> dict[str, Any]:
     return extract_data(context)
 
 
 @task(name="feature-engineering", retries=1, retry_delay_seconds=15)
 def feature_engineering_task(
     context: RunContext,
-    raw_records: list[dict[str, Any]],
+    raw_data: dict[str, Any] | list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    return generate_features(context, raw_records)
+    return generate_features(context, raw_data)
 
 
 @task(name="inference", retries=1, retry_delay_seconds=15)
@@ -54,7 +66,10 @@ def single_step_task(
     return run_step(context, step, inputs)
 
 
-@flow(name="cortex-model-pipeline")
+@flow(
+    name="cortex-model-pipeline",
+    flow_run_name=generate_flow_name,
+)
 def full_pipeline_flow(
     model_name: str,
     run_id: str | None = None,
@@ -67,8 +82,8 @@ def full_pipeline_flow(
         run_id=run_id,
         parameters=parameters,
     )
-    raw_records = extract_data_task(context)
-    feature_records = feature_engineering_task(context, raw_records)
+    raw_data = extract_data_task(context)
+    feature_records = feature_engineering_task(context, raw_data)
     prediction_records = inference_task(context, feature_records)
     result = publish_predictions_task(context, prediction_records, feature_records)
     return result.model_dump(mode="json")

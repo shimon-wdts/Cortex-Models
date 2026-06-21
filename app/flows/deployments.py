@@ -37,7 +37,8 @@ def deploy_configured_models() -> list[str]:
                 "execution_mode": ExecutionMode.SCHEDULED.value,
             },
             tags=["cortex-models", model_name, "batch"],
-            description=f"Scheduled full inference pipeline for {model_name}",
+            description=config.description,
+            version=config.version,
             entrypoint_type=EntrypointType.MODULE_PATH,
             ignore_warnings=True,
         )

@@ -1,0 +1,4 @@
+model_registry:
+  postgres:
+    replica_url: postgresql+psycopg://wdts_admin:fot_wdtsf07@172.19.10.8:5432/wdts_reportdb
+
