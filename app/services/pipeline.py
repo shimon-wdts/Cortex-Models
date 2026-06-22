@@ -17,6 +17,7 @@ from app.models.pipeline_contracts import (
     RunContext,
     StepResult,
 )
+from app.pipelines import get_pipeline
 from app.services.imports import import_callable
 from app.services.model_registry import ModelRegistry, get_model_registry
 from app.services.observability import observe_step, record_rows
@@ -28,11 +29,13 @@ def create_run_context(
     run_id: str | None = None,
     parameters: dict[str, Any] | None = None,
 ) -> RunContext:
+    input_parameters = parameters or {}
     return RunContext(
         model_name=model_name,
         run_id=run_id or _new_run_id(),
         execution_mode=execution_mode,
-        parameters=parameters or {},
+        parameters=input_parameters,
+        query_parameters=get_pipeline(model_name).get_query_params(input_parameters),
     )
 
 
@@ -47,7 +50,7 @@ def extract_data(
         data: dict[str, pd.DataFrame] = {}
         rows = 0
         for query in config.queries:
-            frame = client.query(query.sql, _render_params(query.params, context.parameters))
+            frame = client.query(query.sql, _render_params(query.params, context.query_parameters))
             if frame.empty:
                 frame = pd.DataFrame(columns=query.df_columns)
             data[query.name] = frame
@@ -65,8 +68,7 @@ def generate_features(
     config = registry.get_model(context.model_name)
     with observe_step(context, PipelineStep.FEATURES):
         raw_frames = _coerce_raw_data_by_query(raw_data)
-        builder = import_callable(config.features.builder)
-        features = builder(raw_frames, config.features.params)
+        features = get_pipeline(context.model_name).build_feature(raw_frames, config.features)
         if not isinstance(features, pd.DataFrame):
             raise TypeError("Feature builder must return a pandas DataFrame")
         record_rows(context, PipelineStep.FEATURES, len(features))
@@ -228,7 +230,7 @@ def _render_params(params: dict[str, Any], runtime_params: dict[str, Any]) -> di
 def _coerce_raw_data_by_query(raw_data: dict[str, Any] | list[dict[str, Any]]) -> dict[str, pd.DataFrame]:
     if isinstance(raw_data, dict):
         return {
-            name: value.copy() if isinstance(value, pd.DataFrame) else pd.DataFrame(value)
+            name: value if isinstance(value, pd.DataFrame) else pd.DataFrame(value)
             for name, value in raw_data.items()
         }
     return {"default": pd.DataFrame(raw_data)}

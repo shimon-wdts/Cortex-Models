@@ -84,6 +84,7 @@ class ModelPipelineConfig(BaseModel):
     env: str = "local"
     output_schema_version: float = 1.0
     severity_default: str = "medium"
+    parameters: dict[str, Any] = Field(default_factory=dict)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     queries: list[QueryConfig] = Field(default_factory=list)
     features: FeatureConfig
@@ -105,6 +106,7 @@ class RunContext(BaseModel):
     run_id: str
     execution_mode: ExecutionMode
     parameters: dict[str, Any] = Field(default_factory=dict)
+    query_parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class StepResult(BaseModel):

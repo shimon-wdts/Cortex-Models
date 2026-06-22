@@ -7,8 +7,8 @@ from typing import Any
 from prefect.client.schemas.schedules import CronSchedule, IntervalSchedule, RRuleSchedule
 from prefect.deployments.runner import EntrypointType
 
-from app.flows.inference import full_pipeline_flow, step_flow
-from app.models.pipeline_contracts import ExecutionMode, PipelineStep, ScheduleConfig
+from app.flows.inference import full_pipeline_flow
+from app.models.pipeline_contracts import ExecutionMode, ScheduleConfig
 from app.services.model_registry import get_model_registry
 
 
@@ -35,6 +35,7 @@ def deploy_configured_models() -> list[str]:
             parameters={
                 "model_name": model_name,
                 "execution_mode": ExecutionMode.SCHEDULED.value,
+                "parameters": config.parameters
             },
             tags=["cortex-models", model_name, "batch"],
             description=config.description,
@@ -44,25 +45,25 @@ def deploy_configured_models() -> list[str]:
         )
         deployment_ids.append(str(deployment_id))
 
-        for step in PipelineStep:
-            step_deployment_id = step_flow.deploy(
-                name=f"{model_name}-{step.value}",
-                work_pool_name=work_pool_name,
-                work_queue_name=work_queue_name,
-                build=False,
-                push=False,
-                parameters={
-                    "model_name": model_name,
-                    "step": step.value,
-                    "execution_mode": ExecutionMode.MANUAL.value,
-                },
-                paused=False,
-                tags=["cortex-models", model_name, "manual-step", step.value],
-                description=f"Manual {step.value} flow for {model_name}",
-                entrypoint_type=EntrypointType.MODULE_PATH,
-                ignore_warnings=True,
-            )
-            deployment_ids.append(str(step_deployment_id))
+        # for step in PipelineStep:
+        #     step_deployment_id = step_flow.deploy(
+        #         name=f"{model_name}-{step.value}",
+        #         work_pool_name=work_pool_name,
+        #         work_queue_name=work_queue_name,
+        #         build=False,
+        #         push=False,
+        #         parameters={
+        #             "model_name": model_name,
+        #             "step": step.value,
+        #             "execution_mode": ExecutionMode.MANUAL.value,
+        #         },
+        #         paused=False,
+        #         tags=["cortex-models", model_name, "manual-step", step.value],
+        #         description=f"Manual {step.value} flow for {model_name}",
+        #         entrypoint_type=EntrypointType.MODULE_PATH,
+        #         ignore_warnings=True,
+        #     )
+        #     deployment_ids.append(str(step_deployment_id))
 
     return deployment_ids
 

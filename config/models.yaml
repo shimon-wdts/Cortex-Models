@@ -25,6 +25,11 @@ model_registry:
       env: local
       output_schema_version: 1.0
       severity_default: critical
+      parameters:
+        end_ts: now # now or %Y-%m-%d_%H-%M-%S
+        start_offset_min: 15
+        history_window_min: 60
+        horizon60_min: 60
 
       schedule:
         enabled: false
@@ -73,10 +78,10 @@ model_registry:
               to_topology_id AS to_table_id,
               chips AS chips_raw
             FROM t_chip_txn_update
-            WHERE created_dtm >= :start_ts
+            WHERE created_dtm >= :lower_bound
               AND created_dtm <= :end_ts
           params:
-            start_ts: "{{ start_ts }}"
+            lower_bound: "{{ lower_bound }}"
             end_ts: "{{ end_ts }}"
           df_columns: ["update_ts", "update_type", "update_value", "from_table_id", "to_table_id", "chips_raw"]
 
@@ -88,12 +93,12 @@ model_registry:
               casino_win,
               casino_loss_from_nn AS casino_loss
             FROM t_bet
-            WHERE payout_complete_dtm >= :start_ts
+            WHERE payout_complete_dtm >= :lower_bound
               AND payout_complete_dtm <= :end_ts
               AND table_id IS NOT NULL
               AND payout_complete_dtm IS NOT NULL
           params:
-            start_ts: "{{ start_ts }}"
+            lower_bound: "{{ lower_bound }}"
             end_ts: "{{ end_ts }}"
           df_columns: ["table_id", "payout_ts", "casino_win", "casino_loss"]
 
@@ -105,13 +110,13 @@ model_registry:
               txn_value AS fill_amount
             FROM t_casino_txn
             WHERE complete_dtm >= :start_ts
-              AND complete_dtm <= :end_ts
+              AND complete_dtm <= :upper_bound
               AND topology_id IS NOT NULL
               AND complete_dtm IS NOT NULL
               AND LOWER(type::text) LIKE '%fill%'
           params:
             start_ts: "{{ start_ts }}"
-            end_ts: "{{ end_ts }}"
+            upper_bound: "{{ upper_bound }}"
           df_columns: ["table_id", "fill_ts", "fill_amount"]
 
       features:

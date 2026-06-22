@@ -94,8 +94,11 @@ docker run --rm -p 8000:8000 -e CORTEX_ENV=prod cortex-models
 
 ## Configuration (Dynaconf)
 
-Settings are loaded from `config/settings.yaml` with optional local overrides in
-`config/settings.local.yaml`. Switch environments with `CORTEX_ENV=dev|uat|prod`.
+Settings are loaded in order from `config/settings.yaml`, `config/models.yaml`,
+`config/settings.{CORTEX_ENV}.yaml`, and `config/models.{CORTEX_ENV}.yaml` when
+those files exist. Later files override earlier values, and nested dictionaries
+are merged so a local `model_registry.postgres` override does not remove
+`model_registry.models`. Switch environments with `CORTEX_ENV=dev|uat|prod`.
 Environment variables with the `CORTEX_` prefix override YAML values (highest precedence).
 
 Common environment variables:
@@ -147,6 +150,9 @@ app/
     prediction_adapters.py # Inference/output event adapters
   models/
     pipeline_contracts.py # Config, pipeline, and Kafka event schemas
+  pipelines/
+    base.py               # Pipeline extension base class
+    predicted_fills/      # Predicted fills pipeline-specific behavior
   services/
     model_registry.py     # Reads model configs from Dynaconf
     observability.py      # Structured step logs and metrics
@@ -164,6 +170,7 @@ Each model defines:
 - `enabled`
 - `description` and `version`
 - `type` and `source`
+- default runtime `parameters`
 - `schedule`
 - SQL `queries`
 - query `df_columns` for preserving schemas on empty query results
@@ -173,7 +180,17 @@ Each model defines:
 - output adapter and entity mappings
 - Kafka topic and key
 
-The default sample config defines `player_performance` for a `PlayerPerformance` model with MLflow version `10.2.0`, feature version `1.0`, a cron schedule, and Kafka topic `cortex.insights.player-performance`.
+The default sample config defines `predicted_fills` for a `PredictedFills` model with MLflow version `10.2.0`, feature version `1.0`, a cron schedule, and Kafka topic `cortex.insights.predicted-fills`.
+
+`predicted_fills` derives query window parameters when they are not supplied:
+
+- `end_ts` defaults to `current_time`, or can be supplied as a datetime such as `2026-06-21_10-00-00`
+- `start_ts` defaults to `end_ts - start_offset_min`
+- `start_offset_min` defaults to `15`
+- `history_window_min` defaults to `60`
+- `horizon60_min` defaults to `60`
+- `lower_bound = start_ts - history_window_min`
+- `upper_bound = end_ts + horizon60_min`
 
 ## Kafka Insight Event
 
@@ -233,19 +250,19 @@ For production, use a work pool that matches the runtime platform, usually Kuber
 Trigger deployment runs from Prefect UI or CLI. For example, trigger the full pipeline:
 
 ```bash
-prefect deployment run 'cortex-model-pipeline/player_performance' \
-  --param model_name=player_performance \
+prefect deployment run 'cortex-model-pipeline/predicted_fills' \
+  --param model_name=predicted_fills \
   --param execution_mode=manual \
-  --param parameters='{"gaming_day":"2026-06-07"}'
+  --param parameters='{"end_ts":"2026-06-21T10:00:00Z"}'
 ```
 
 Trigger feature engineering only:
 
 ```bash
-prefect deployment run 'cortex-model-step/player_performance-feature_engineering' \
-  --param model_name=player_performance \
+prefect deployment run 'cortex-model-step/predicted_fills-feature_engineering' \
+  --param model_name=predicted_fills \
   --param step=feature_engineering \
-  --param inputs='{"raw_data":{"player_window":[{"table_id":"BA0054","player_id":"676767","gaming_day":"2026-06-07"}]}}'
+  --param inputs='{"raw_data":{"load_tray_scans":[{"table_id":"BA0054","tray_balance":10000,"tray_ts":"2026-06-21T09:55:00Z"}]}}'
 ```
 
 ## Observability

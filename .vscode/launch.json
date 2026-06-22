@@ -35,8 +35,8 @@
                 "CORTEX_ENV": "local"
             },
             "console": "integratedTerminal",
-            "justMyCode": false,
-            "preLaunchTask": "Prefect: Start Server And Deployments"
+            "justMyCode": true,
+            // "preLaunchTask": "Prefect: Start Server And Deployments"
         }
     ]
 }

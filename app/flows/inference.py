@@ -19,11 +19,12 @@ from app.services.pipeline import (
 def generate_flow_name() -> str:
     date = datetime.datetime.now(datetime.timezone.utc)
     try:
-        parameters = runtime.flow_run.parameters or {}
+        flow_parameters = runtime.flow_run.parameters or {}
     except Exception:
-        parameters = {}
-    model_name = parameters.get("model_name", "model")
-    execution_mode = parameters.get("execution_mode", ExecutionMode.SCHEDULED.value)
+        flow_parameters = {}
+    parameters = flow_parameters.get("parameters") or {}
+    model_name = flow_parameters.get("model_name") or parameters.get("model_name", "model")
+    execution_mode = flow_parameters.get("execution_mode", ExecutionMode.SCHEDULED.value)
     return f"{model_name}-{execution_mode}-{date:%Y-%m-%d_%H-%M-%S}"
 
 
@@ -71,16 +72,21 @@ def single_step_task(
     flow_run_name=generate_flow_name,
 )
 def full_pipeline_flow(
-    model_name: str,
+    model_name: str | None = None,
+    parameters: dict[str, Any] = {},
     run_id: str | None = None,
-    parameters: dict[str, Any] | None = None,
     execution_mode: str = ExecutionMode.SCHEDULED.value,
 ) -> dict[str, Any]:
+    input_parameters = parameters or {}
+    resolved_model_name = model_name or input_parameters.get("model_name")
+    if not resolved_model_name:
+        raise ValueError("model_name must be provided directly or in parameters")
+
     context = create_run_context(
-        model_name=model_name,
+        model_name=resolved_model_name,
         execution_mode=ExecutionMode(execution_mode),
         run_id=run_id,
-        parameters=parameters,
+        parameters=input_parameters,
     )
     raw_data = extract_data_task(context)
     feature_records = feature_engineering_task(context, raw_data)
