@@ -5,31 +5,21 @@ from typing import Any
 
 import pandas as pd
 
-from app.models.pipeline_contracts import FeatureConfig
-from app.services.imports import import_callable
-
 
 class Pipeline:
     def get_query_params(self, parameters: dict[str, Any]) -> dict[str, Any]:
         return dict(parameters)
 
-    def build_feature(
-        self,
+    def build_feature(self,
         raw_data: dict[str, pd.DataFrame],
-        feature_config: FeatureConfig,
-    ) -> pd.DataFrame:
-        builder = import_callable(feature_config.builder)
-        features = builder(raw_data, feature_config.params)
-        if not isinstance(features, pd.DataFrame):
-            raise TypeError("Feature builder must return a pandas DataFrame")
-        return features
+        query_parameters: dict[str, Any]
+    ) -> Any:
+        pass
 
-    def builde_feature(
-        self,
-        raw_data: dict[str, pd.DataFrame],
-        feature_config: FeatureConfig,
-    ) -> pd.DataFrame:
-        return self.build_feature(raw_data, feature_config)
+    def run_inference(self,
+        features: Any,
+    ) -> Any:
+        pass
 
     def _coerce_timestamp(self, value: Any) -> datetime:
         if isinstance(value, str):

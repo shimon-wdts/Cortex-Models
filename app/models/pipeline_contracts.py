@@ -36,12 +36,6 @@ class QueryConfig(BaseModel):
     df_columns: list[str] = Field(default_factory=list)
 
 
-class FeatureConfig(BaseModel):
-    version: str
-    builder: str
-    params: dict[str, Any] = Field(default_factory=dict)
-
-
 class ModelStoreConfig(BaseModel):
     provider: Literal["mlflow", "custom"] = "mlflow"
     tracking_uri: str | None = None
@@ -50,10 +44,6 @@ class ModelStoreConfig(BaseModel):
     uri: str | None = None
     loader: str | None = None
 
-
-class InferenceConfig(BaseModel):
-    adapter: str
-    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class EntityMappingConfig(BaseModel):
@@ -79,6 +69,7 @@ class ModelPipelineConfig(BaseModel):
     enabled: bool = True
     description: str = ""
     version: str = "1.0.0"
+    features_version: str = "1.0"
     type: str
     source: str
     env: str = "local"
@@ -87,9 +78,7 @@ class ModelPipelineConfig(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     queries: list[QueryConfig] = Field(default_factory=list)
-    features: FeatureConfig
     model_store: ModelStoreConfig
-    inference: InferenceConfig
     output: OutputConfig
     kafka: KafkaTopicConfig
 

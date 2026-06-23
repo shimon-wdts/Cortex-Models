@@ -22,16 +22,15 @@ model_registry:
       enabled: true
       description: Predicted Fills inference pipeline
       version: "1.0.0"
+      features_version: "1.0"
       type: PredictedFills
-      source: cortex.models.predicted-fills
-      env: local
+      source: cortex.models.predicted_fills
       output_schema_version: 1.0
       severity_default: critical
       parameters:
         end_ts: now # now or %Y-%m-%d_%H-%M-%S
-        start_offset_min: 15
-        history_window_min: 60
-        horizon60_min: 60
+        start_offset_min: 60
+        snapshot_minute: 60
 
       schedule:
         enabled: false
@@ -41,36 +40,48 @@ model_registry:
         concurrency_limit: 1
 
       queries:
-        - name: load_tray_scans
+        - name: tray_scans
           sql: |
             SELECT
               table_id,
               total_tray_value AS tray_balance,
-              scan_dtm AS tray_ts
+              scan_dtm AS tray_ts,
+              scan_type,
+              table_name,
+              pit_name,
+              gaming_area,
+              top_tray_chip_count,
+              bottom_tray_chip_count
             FROM t_cage_chip_tray_scan
-            WHERE scan_dtm <= :end_ts
+            WHERE scan_dtm >= :tray_lower
+              AND scan_dtm <= :end_ts
               AND table_id IS NOT NULL
               AND scan_dtm IS NOT NULL
           params:
+            tray_lower: "{{ tray_lower }}"
             end_ts: "{{ end_ts }}"
-          df_columns: ["table_id", "tray_balance", "tray_ts"]
+          df_columns: ["table_id", "tray_balance", "tray_ts", "scan_type", "table_name", "pit_name", "gaming_area", "top_tray_chip_count", "bottom_tray_chip_count"]
 
-        - name: load_chip_inventory
+        - name: chip_inventory
           sql: |
-            SELECT
+            SELECT DISTINCT ON (chip_id)
               topology_id AS table_id,
               chip_id,
               denom,
-              updated_dtm AS updated_ts
+              updated_dtm AS updated_ts,
+              owner_type,
+              status,
+              last_transaction
             FROM t_chip
-            WHERE updated_dtm <= :end_ts
+            WHERE (updated_dtm <= :end_ts OR updated_dtm IS NULL)
               AND topology_id IS NOT NULL
               AND denom IS NOT NULL
+            ORDER BY chip_id, updated_dtm DESC NULLS LAST
           params:
             end_ts: "{{ end_ts }}"
-          df_columns: ["table_id", "chip_id", "denom", "updated_ts"]
+          df_columns: ["table_id", "chip_id", "denom", "updated_ts", "owner_type", "status", "last_transaction"]
 
-        - name: load_chip_updates
+        - name: chip_updates
           sql: |
             SELECT
               created_dtm AS update_ts,
@@ -80,14 +91,14 @@ model_registry:
               to_topology_id AS to_table_id,
               chips AS chips_raw
             FROM t_chip_txn_update
-            WHERE created_dtm >= :lower_bound
+            WHERE created_dtm >= :lower
               AND created_dtm <= :end_ts
           params:
-            lower_bound: "{{ lower_bound }}"
+            lower: "{{ lower }}"
             end_ts: "{{ end_ts }}"
           df_columns: ["update_ts", "update_type", "update_value", "from_table_id", "to_table_id", "chips_raw"]
 
-        - name: load_bets
+        - name: bets
           sql: |
             SELECT
               table_id,
@@ -95,46 +106,34 @@ model_registry:
               casino_win,
               casino_loss_from_nn AS casino_loss
             FROM t_bet
-            WHERE payout_complete_dtm >= :lower_bound
+            WHERE payout_complete_dtm >= :lower
               AND payout_complete_dtm <= :end_ts
               AND table_id IS NOT NULL
               AND payout_complete_dtm IS NOT NULL
           params:
-            lower_bound: "{{ lower_bound }}"
+            lower: "{{ lower }}"
             end_ts: "{{ end_ts }}"
           df_columns: ["table_id", "payout_ts", "casino_win", "casino_loss"]
 
-        - name: load_fill_events
+        - name: topology
           sql: |
             SELECT
               topology_id AS table_id,
-              complete_dtm AS fill_ts,
-              txn_value AS fill_amount
-            FROM t_casino_txn
-            WHERE complete_dtm >= :start_ts
-              AND complete_dtm <= :upper_bound
-              AND topology_id IS NOT NULL
-              AND complete_dtm IS NOT NULL
-              AND LOWER(type::text) LIKE '%fill%'
-          params:
-            start_ts: "{{ start_ts }}"
-            upper_bound: "{{ upper_bound }}"
-          df_columns: ["table_id", "fill_ts", "fill_amount"]
-
-      features:
-        version: "1.0"
-        builder: app.features.builders:identity_feature_builder
-        params: {}
+              name AS topology_name,
+              description,
+              status AS topology_status,
+              device_type,
+              game_type,
+              table_type
+            FROM t_topology
+            WHERE topology_id IS NOT NULL
+          df_columns: ["table_id", "topology_name", "description", "topology_status", "device_type", "game_type", "table_type"]
 
       model_store:
         provider: mlflow
         tracking_uri: http://mlflow:5000
         registered_model_name: PredictedFills
         version: "10.2.0"
-
-      inference:
-        adapter: app.inference.prediction_adapters:default_predict_adapter
-        params: {}
 
       output:
         adapter: app.inference.prediction_adapters:generic_insight_event_adapter

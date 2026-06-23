@@ -53,7 +53,7 @@ def feature_engineering_task(
 @task(name="inference", retries=1, retry_delay_seconds=15)
 def inference_task(
     context: RunContext,
-    feature_records: list[dict[str, Any]],
+    feature_records: any,
 ) -> list[dict[str, Any]]:
     return run_inference(context, feature_records)
 
@@ -66,14 +66,6 @@ def publish_predictions_task(
 ) -> StepResult:
     return publish_predictions(context, prediction_records, feature_records)
 
-
-@task(name="single-step", retries=1, retry_delay_seconds=15)
-def single_step_task(
-    context: RunContext,
-    step: PipelineStep,
-    inputs: dict[str, Any],
-) -> StepResult:
-    return run_step(context, step, inputs)
 
 
 @flow(
@@ -104,20 +96,3 @@ def full_pipeline_flow(
     return result.model_dump(mode="json")
 
 
-@flow(name="cortex-model-step")
-def step_flow(
-    model_name: str,
-    step: str,
-    run_id: str | None = None,
-    parameters: dict[str, Any] | None = None,
-    inputs: dict[str, Any] | None = None,
-    execution_mode: str = ExecutionMode.MANUAL.value,
-) -> dict[str, Any]:
-    context = create_run_context(
-        model_name=model_name,
-        execution_mode=ExecutionMode(execution_mode),
-        run_id=run_id,
-        parameters=parameters,
-    )
-    result = single_step_task(context, PipelineStep(step), inputs or {})
-    return result.model_dump(mode="json")

@@ -64,27 +64,25 @@ def generate_features(
     context: RunContext,
     raw_data: dict[str, Any] | list[dict[str, Any]],
     registry: ModelRegistry | None = None,
-) -> list[dict[str, Any]]:
+) -> Any:
     registry = registry or get_model_registry()
     config = registry.get_model(context.model_name)
     with observe_step(context, PipelineStep.FEATURES):
         raw_frames = _coerce_raw_data_by_query(raw_data)
-        features = get_pipeline(context.model_name).build_feature(raw_frames, config.features)
-        if not isinstance(features, pd.DataFrame):
-            raise TypeError("Feature builder must return a pandas DataFrame")
-        record_rows(context, PipelineStep.FEATURES, len(features))
-        return features.to_dict(orient="records")
+        features = get_pipeline(context.model_name).build_feature(raw_frames, context.query_parameters)
+        # record_rows(context, PipelineStep.FEATURES, len(features))
+        return features
 
 
 def run_inference(
     context: RunContext,
-    feature_records: list[dict[str, Any]],
+    features: Any,
     registry: ModelRegistry | None = None,
 ) -> list[dict[str, Any]]:
     registry = registry or get_model_registry()
     config = registry.get_model(context.model_name)
     with observe_step(context, PipelineStep.INFERENCE):
-        features = pd.DataFrame(feature_records)
+        result = get_pipeline(context.model_name).run_inference(features, context.query_parameters)
         model = load_model(config.model_store)
         adapter = import_callable(config.inference.adapter)
         predictions = adapter(model, features, config.inference.params)
@@ -151,66 +149,6 @@ def publish_predictions(
             published=published,
             topic=config.kafka.topic,
         )
-
-
-def run_full_pipeline(context: RunContext, registry: ModelRegistry | None = None) -> StepResult:
-    registry = registry or get_model_registry()
-    raw_data = extract_data(context, registry)
-    feature_records = generate_features(context, raw_data, registry)
-    prediction_records = run_inference(context, feature_records, registry)
-    return publish_predictions(context, prediction_records, feature_records, registry)
-
-
-def run_step(
-    context: RunContext,
-    step: PipelineStep,
-    inputs: dict[str, Any] | None = None,
-    registry: ModelRegistry | None = None,
-) -> StepResult:
-    registry = registry or get_model_registry()
-    inputs = inputs or {}
-
-    if step == PipelineStep.EXTRACT:
-        raw_data = extract_data(context, registry)
-        return StepResult(
-            model_name=context.model_name,
-            run_id=context.run_id,
-            step=step,
-            status="completed",
-            rows=sum(len(frame) for frame in raw_data.values()),
-        )
-    if step == PipelineStep.FEATURES:
-        feature_records = generate_features(
-            context,
-            inputs.get("raw_data", inputs.get("raw_records", {})),
-            registry,
-        )
-        return StepResult(
-            model_name=context.model_name,
-            run_id=context.run_id,
-            step=step,
-            status="completed",
-            rows=len(feature_records),
-        )
-    if step == PipelineStep.INFERENCE:
-        prediction_records = run_inference(context, inputs.get("feature_records", []), registry)
-        return StepResult(
-            model_name=context.model_name,
-            run_id=context.run_id,
-            step=step,
-            status="completed",
-            rows=len(prediction_records),
-        )
-    if step == PipelineStep.PUBLISH:
-        return publish_predictions(
-            context,
-            inputs.get("prediction_records", []),
-            inputs.get("feature_records", []),
-            registry,
-        )
-
-    raise ValueError(f"Unsupported pipeline step: {step}")
-
 
 def _new_run_id() -> str:
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S")
