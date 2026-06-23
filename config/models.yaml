@@ -9,6 +9,8 @@ model_registry:
 
   postgres:
     replica_url: postgresql+psycopg://readonly:readonly@postgres-replica:5432/cortex
+    pool_size: 1
+    pool_pre_ping: true
 
   kafka:
     bootstrap_servers: localhost:9092

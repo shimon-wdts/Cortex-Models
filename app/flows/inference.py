@@ -5,6 +5,7 @@ from typing import Any
 
 from prefect import flow, runtime, task
 
+from app.clients.postgres import PostgresQueryClient
 from app.models.pipeline_contracts import ExecutionMode, PipelineStep, RunContext, StepResult
 from app.services.pipeline import (
     create_run_context,
@@ -14,6 +15,7 @@ from app.services.pipeline import (
     run_inference,
     run_step,
 )
+from app.services.model_registry import get_model_registry
 
 
 def generate_flow_name() -> str:
@@ -30,7 +32,14 @@ def generate_flow_name() -> str:
 
 @task(name="extract-data", retries=2, retry_delay_seconds=30)
 def extract_data_task(context: RunContext) -> dict[str, Any]:
-    return extract_data(context)
+    registry = get_model_registry()
+    postgres = registry.postgres
+    client = PostgresQueryClient(
+        postgres.get("replica_url", ""),
+        pool_size=postgres.get("pool_size", 1),
+        pool_pre_ping=postgres.get("pool_pre_ping", True),
+    )
+    return extract_data(context, registry=registry, client=client)
 
 
 @task(name="feature-engineering", retries=1, retry_delay_seconds=15)

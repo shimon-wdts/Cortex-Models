@@ -42,11 +42,12 @@ def create_run_context(
 def extract_data(
     context: RunContext,
     registry: ModelRegistry | None = None,
+    client: PostgresQueryClient | None = None,
 ) -> dict[str, pd.DataFrame]:
     registry = registry or get_model_registry()
     config = registry.get_model(context.model_name)
     with observe_step(context, PipelineStep.EXTRACT):
-        client = PostgresQueryClient(registry.postgres.get("replica_url", ""))
+        client = client or PostgresQueryClient(registry.postgres.get("replica_url", ""))
         data: dict[str, pd.DataFrame] = {}
         rows = 0
         for query in config.queries:
