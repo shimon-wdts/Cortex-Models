@@ -31,6 +31,13 @@ model_registry:
         end_ts: now # now or %Y-%m-%d_%H-%M-%S
         start_offset_min: 60
         snapshot_minute: 60
+        threshold: 0.60
+        json_limit: 100
+        opportunistic_min_prob: 0.30
+        avoided_future_trip_minutes: 8.0
+        same_pit_extra_stop_minutes: 2.0
+        max_extra_stops_per_route: 2
+
 
       schedule:
         enabled: false
@@ -163,5 +170,5 @@ model_registry:
             scope: recommendation
 
       kafka:
-        topic: cortex.insights.predicted-fills
-        key_field: Player
+        topic: cortex-floor-insights
+        key_field: table_id

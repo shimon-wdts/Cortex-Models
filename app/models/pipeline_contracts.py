@@ -96,6 +96,7 @@ class RunContext(BaseModel):
     execution_mode: ExecutionMode
     parameters: dict[str, Any] = Field(default_factory=dict)
     query_parameters: dict[str, Any] = Field(default_factory=dict)
+    model_store_dir: str | None = None
 
 
 class StepResult(BaseModel):

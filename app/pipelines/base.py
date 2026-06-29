@@ -4,21 +4,17 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
+from prefect.context import RunContext
 
 
 class Pipeline:
     def get_query_params(self, parameters: dict[str, Any]) -> dict[str, Any]:
         return dict(parameters)
 
-    def build_feature(self,
-        raw_data: dict[str, pd.DataFrame],
-        query_parameters: dict[str, Any]
-    ) -> Any:
+    def build_feature(self, raw_data: dict[str, pd.DataFrame], context: RunContext) -> Any:
         pass
 
-    def run_inference(self,
-        features: Any,
-    ) -> Any:
+    def run_inference(self, features: Any, context: RunContext) -> Any:
         pass
 
     def _coerce_timestamp(self, value: Any) -> datetime:

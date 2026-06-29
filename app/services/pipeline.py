@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
+from venv import logger
 
 import pandas as pd
+from prefect.logging import get_run_logger
 
 from app.clients.kafka import KafkaPredictionPublisher
 from app.clients.model_store import load_model
@@ -36,6 +38,7 @@ def create_run_context(
         execution_mode=execution_mode,
         parameters=input_parameters,
         query_parameters=get_pipeline(model_name).get_query_params(input_parameters),
+        model_store_dir=get_model_registry().get_model_store_dir(model_name)
     )
 
 
@@ -56,6 +59,8 @@ def extract_data(
                 frame = pd.DataFrame(columns=query.df_columns)
             data[query.name] = frame
             rows += len(frame)
+        logger = get_run_logger()
+        logger.info(PipelineStep.EXTRACT + " total rows: " + str(rows))
         record_rows(context, PipelineStep.EXTRACT, rows)
         return data
 
@@ -70,7 +75,9 @@ def generate_features(
     with observe_step(context, PipelineStep.FEATURES):
         raw_frames = _coerce_raw_data_by_query(raw_data)
         features = get_pipeline(context.model_name).build_feature(raw_frames, context.query_parameters)
-        # record_rows(context, PipelineStep.FEATURES, len(features))
+        logger = get_run_logger()
+        logger.info(PipelineStep.FEATURES + " total rows: " + str(len(features)))
+        record_rows(context, PipelineStep.FEATURES, len(features))
         return features
 
 
@@ -81,15 +88,13 @@ def run_inference(
 ) -> list[dict[str, Any]]:
     registry = registry or get_model_registry()
     config = registry.get_model(context.model_name)
+    model_dir = registry.get_model_store_dir(context.model_name)
     with observe_step(context, PipelineStep.INFERENCE):
-        result = get_pipeline(context.model_name).run_inference(features, context.query_parameters)
-        model = load_model(config.model_store)
-        adapter = import_callable(config.inference.adapter)
-        predictions = adapter(model, features, config.inference.params)
-        if not isinstance(predictions, pd.DataFrame):
-            raise TypeError("Inference adapter must return a pandas DataFrame")
+        logger = get_run_logger()
+        predictions = get_pipeline(context.model_name).run_inference(features, context)
+        logger.info(PipelineStep.INFERENCE + " total rows: " + str(len(predictions)))
         record_rows(context, PipelineStep.INFERENCE, len(predictions))
-        return predictions.to_dict(orient="records")
+        return predictions
 
 
 def build_prediction_events(
@@ -115,13 +120,13 @@ def build_prediction_events(
 def publish_predictions(
     context: RunContext,
     prediction_records: list[dict[str, Any]],
-    feature_records: list[dict[str, Any]],
     registry: ModelRegistry | None = None,
 ) -> StepResult:
     registry = registry or get_model_registry()
     config = registry.get_model(context.model_name)
     with observe_step(context, PipelineStep.PUBLISH):
-        events = build_prediction_events(context, prediction_records, feature_records, registry)
+        # events = build_prediction_events(context, prediction_records, registry)
+        logger.info(PipelineStep.PUBLISH + " total rows: " + str(len(prediction_records)))
         kafka_config = registry.kafka
         publisher = KafkaPredictionPublisher(
             bootstrap_servers=kafka_config.get("bootstrap_servers", ""),
@@ -131,7 +136,7 @@ def publish_predictions(
         )
         published = publisher.publish_many(
             topic=config.kafka.topic,
-            events=events,
+            events=prediction_records,
             key_field=config.kafka.key_field,
         )
         MODEL_PREDICTIONS_PUBLISHED_TOTAL.labels(
@@ -145,7 +150,7 @@ def publish_predictions(
             run_id=context.run_id,
             step=PipelineStep.PUBLISH,
             status="completed",
-            rows=len(events),
+            rows=len(prediction_records),
             published=published,
             topic=config.kafka.topic,
         )

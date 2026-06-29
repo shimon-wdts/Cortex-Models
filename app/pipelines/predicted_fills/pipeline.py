@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 import pandas as pd
 
+from app.models.pipeline_contracts import RunContext
 from app.pipelines.base import Pipeline
-from app.pipelines.predicted_fills.build_features import FeatureResult, FeatureConfig, build_feature_dataset
+from app.pipelines.predicted_fills.build_features import FeatureResult, FeatureConfig, add_quality_flags, build_feature_dataset
 from app.pipelines.predicted_fills.fetch_data import SOURCE_TABLES, SourceBundle, df_profile, normalize_sources
+from app.pipelines.predicted_fills.inference import build_fill_alerts_json, score_with_saved_model
+from app.pipelines.predicted_fills.route_v2 import RouteV2Config, add_route_v2_recommendations
 
 
 class PredictiveFillsPipeline(Pipeline):
@@ -58,7 +62,54 @@ class PredictiveFillsPipeline(Pipeline):
 
         return feature_result
     
-    def run_inference(self, features: Any) -> Any:
-        pass    
+
+    def write_outputs(self, scored: pd.DataFrame, json_limit: int) -> dict:
+        scored = scored.copy()
+        if "route_v2_pred" not in scored.columns:
+            scored["route_v2_pred"] = pd.Series(dtype=int)
+
+        insight_cols = [
+            c for c in [
+                "snapshot_ts", "table_id", "table_name", "pit_name",
+                "need_prob", "need_pred", "decision_threshold", "risk_band",
+                "recommended_action", "route_v2_action", "route_v2_is_opportunistic",
+                "route_v2_primary_dispatch_table_id", "route_v2_net_benefit_minutes",
+                "route_v2_reason",
+                "tray_balance", "tray_age_hours", "OUT_total_60m", "expected_payout_next60",
+                "net_buffer_next60", "denom_risk_next60_rule", "data_quality_status",
+                "score_usable_for_shadow_review", "score_usable_for_auto_dispatch",
+                "insight_summary",
+            ]
+            if c in scored.columns
+        ]
+        insights = scored[insight_cols].copy()
+        insight_sort_cols = [c for c in ["need_prob", "snapshot_ts"] if c in insights.columns]
+        if insight_sort_cols:
+            insights = insights.sort_values(insight_sort_cols, ascending=[False] * len(insight_sort_cols))
+
+        action_queue = scored.loc[pd.to_numeric(scored["route_v2_pred"], errors="coerce").fillna(0).eq(1), insight_cols].copy()
+        action_sort_cols = [c for c in ["snapshot_ts", "route_v2_action", "need_prob"] if c in action_queue.columns]
+        if action_sort_cols:
+            ascending = [True if c != "need_prob" else False for c in action_sort_cols]
+            action_queue = action_queue.sort_values(action_sort_cols, ascending=ascending)
+
+        alerts = build_fill_alerts_json(scored, limit=json_limit)
+        return alerts
+
+    def run_inference(self, features: Any, context: RunContext) -> Any:
+        model_path = Path(context.model_store_dir).resolve()
+        scored = score_with_saved_model(features.features, model_dir=model_path, threshold=context.parameters["threshold"])
+        scored = add_quality_flags(scored)
+        route_config = RouteV2Config(
+            urgent_threshold=float(context.parameters["threshold"]),
+            opportunistic_min_prob=float(context.parameters["opportunistic_min_prob"]),
+            avoided_future_trip_minutes=float(context.parameters["avoided_future_trip_minutes"]),
+            same_pit_extra_stop_minutes=float(context.parameters["same_pit_extra_stop_minutes"]),
+            max_extra_stops_per_route=int(context.parameters["max_extra_stops_per_route"]),
+        )
+        scored = add_route_v2_recommendations(scored, route_config)
+        alerts = self.write_outputs(scored, context.parameters["json_limit"])
+        return alerts
+    
 
 

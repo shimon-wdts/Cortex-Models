@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from fetch_data import FeatureRepository, RawSources
+from app.pipelines.predicted_fills.fetch_data import FeatureRepository, RawSources
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,9 @@ class FeatureConfig:
 class FeatureResult:
     features: pd.DataFrame
     denom_risk: pd.DataFrame
+
+    def __len__(self) -> int:
+        return len(self.features) + len(self.denom_risk)
 
 
 @dataclass
@@ -303,7 +306,7 @@ class FeatureBuilder:
             (out["available_for_payout"] <= out["severe_buffer_value"])
             | (out["expected_deficit_next30"] > 0)
             | (out["denom_risk_next30_rule"] == 1)
-            | (pd.to_numeric(out.get("worst_denom_minutes_to_zero"), errors="coerce").fillna(9999) <= 30)
+            | (pd.to_numeric(out.get("worst_denom_minutes_to_zero", pd.Series(9999, index=out.index)), errors="coerce").fillna(9999) <= 30)
         ).astype(int)
         out["needs_fill_next30_rule"] = (
             (out["expected_deficit_next30"] > 0)
@@ -314,7 +317,7 @@ class FeatureBuilder:
             (out["expected_deficit_next60"] > 0)
             | (out["net_buffer_next60"] <= out["warn_buffer_value"])
             | (out["denom_risk_next60_rule"] == 1)
-            | (pd.to_numeric(out.get("worst_denom_minutes_to_zero"), errors="coerce").fillna(9999) <= 60)
+            | (pd.to_numeric(out.get("worst_denom_minutes_to_zero", pd.Series(9999, index=out.index)), errors="coerce").fillna(9999) <= 60)
         ).astype(int)
         out["true_need_severity"] = "low"
         out.loc[out["needs_fill_next60_rule"] == 1, "true_need_severity"] = "medium"

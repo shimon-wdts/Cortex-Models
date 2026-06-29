@@ -59,6 +59,10 @@ class ModelRegistry:
 
     def step_deployment_name(self, model_name: str, step: str) -> str:
         return f"cortex-model-step/{model_name}-{step}"
+    
+    def get_model_store_dir(self, model_name: str) -> str:
+        models_dir = settings.dirs.get("models_dir")
+        return str(models_dir / model_name) if models_dir else model_name
 
 
 def get_model_registry() -> ModelRegistry:

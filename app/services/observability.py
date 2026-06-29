@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import logging
 import time
+from prefect.logging import get_run_logger
 from contextlib import contextmanager
 from collections.abc import Iterator
 from typing import Any
@@ -11,7 +11,6 @@ from app.metrics import MODEL_STEP_DURATION_SECONDS, MODEL_STEP_ROWS_TOTAL, MODE
 from app.models.pipeline_contracts import PipelineStep, RunContext
 
 
-logger = logging.getLogger(__name__)
 
 
 def log_step_event(
@@ -28,6 +27,7 @@ def log_step_event(
         "step": step.value,
         **fields,
     }
+    logger = get_run_logger()
     logger.info(json.dumps(payload, default=str, sort_keys=True))
 
 

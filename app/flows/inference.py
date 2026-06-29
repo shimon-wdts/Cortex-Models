@@ -13,7 +13,6 @@ from app.services.pipeline import (
     generate_features,
     publish_predictions,
     run_inference,
-    run_step,
 )
 from app.services.model_registry import get_model_registry
 
@@ -62,11 +61,8 @@ def inference_task(
 def publish_predictions_task(
     context: RunContext,
     prediction_records: list[dict[str, Any]],
-    feature_records: list[dict[str, Any]],
 ) -> StepResult:
-    return publish_predictions(context, prediction_records, feature_records)
-
-
+    return publish_predictions(context, prediction_records)
 
 @flow(
     name="cortex-model-pipeline",
@@ -92,7 +88,6 @@ def full_pipeline_flow(
     raw_data = extract_data_task(context)
     feature_records = feature_engineering_task(context, raw_data)
     prediction_records = inference_task(context, feature_records)
-    result = publish_predictions_task(context, prediction_records, feature_records)
+    result = publish_predictions_task(context, prediction_records)
     return result.model_dump(mode="json")
-
 

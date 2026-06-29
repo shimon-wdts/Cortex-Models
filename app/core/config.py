@@ -4,7 +4,8 @@ from pathlib import Path
 from dynaconf import Dynaconf
 
 env = os.getenv("CORTEX_ENV", "local").strip().lower() or "local"
-config_dir = Path(__file__).resolve().parents[2] / "config"
+base_dir = Path(__file__).resolve().parents[2]
+config_dir = base_dir / "config"
 _settings_file_candidates = [
     config_dir / "settings.yaml",
     config_dir / "models.yaml",
@@ -21,3 +22,11 @@ settings = Dynaconf(
     load_dotenv=True,
     merge_enabled=True,
 )
+
+dirs={
+    "base_dir": base_dir,
+    "config_dir": config_dir,
+    "models_dir": Path(__file__).resolve().parents[1] / "models_store",
+}
+
+settings["dirs"] = dirs

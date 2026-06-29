@@ -8,7 +8,7 @@ dynaconf==3.2.12
 numpy==1.26.4
 colorlog==6.8.2
 prometheus-fastapi-instrumentator==8.0.0
-prefect==3.7.4
+prefect==3.7.5
 sqlalchemy==2.0.41
 psycopg[binary]==3.2.9
 confluent-kafka==2.11.1
