@@ -23,6 +23,7 @@ dependencies = [
     "mlflow==3.1.4",
     "scikit-learn==1.9.0",
     "xgboost==3.2.0",
+    "lightgbm==4.6.0",
 ]
 
 [dependency-groups]

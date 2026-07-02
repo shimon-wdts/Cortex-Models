@@ -18,6 +18,13 @@ model_registry:
     predicted_fills:
       enabled: true
       parameters:
-        end_ts: 2026-05-10 12-00-00 # now or %Y-%m-%d_%H-%M-%S
-        json_limit: 3    
+        end_ts: 2025-11-04T04:00:00Z # now or ISO timestamp with source data
+        json_limit: 3
+
+    ShoeAdvantage:
+      enabled: true
+      parameters:
+        end_ts: 2025-11-04T04:06:00Z # now or ISO timestamp with source data
+        start_offset_min: 10
+        json_limit: 10
 

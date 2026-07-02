@@ -172,3 +172,108 @@ model_registry:
       kafka:
         topic: model-service-insights
         key_field: table_id
+
+    ShoeAdvantage:
+      enabled: true
+      description: Shoe Advantage inference pipeline
+      version: "1.0.0"
+      features_version: "1.0"
+      type: ShoeAdvantage
+      source: cortex.models.shoe_advantage
+      output_schema_version: 1.0
+      severity_default: medium
+      parameters:
+        end_ts: now # now or %Y-%m-%d_%H-%M-%S
+        start_offset_min: 5
+        model_set: recommended
+        model_version: recommended
+        feature_version: "1.0"
+        hand_id_mode: next
+        json_limit: 0
+
+      schedule:
+        enabled: false
+        type: cron
+        cron: "*/5 * * * *"
+        timezone: UTC
+        concurrency_limit: 1
+
+      queries:
+        - name: game_rows
+          sql: |
+            WITH active_shoes AS (
+              SELECT DISTINCT shoe_id
+              FROM t_game
+              WHERE payout_complete_dtm >= :start_ts
+                AND payout_complete_dtm <= :end_ts
+                AND shoe_id IS NOT NULL
+                AND game_id IS NOT NULL
+                AND payout_complete_dtm IS NOT NULL
+                AND (
+                  UPPER(COALESCE(game_type, '')) LIKE '%BACCARAT%'
+                  OR UPPER(COALESCE(game_variant, '')) LIKE '%BACCARAT%'
+                  OR UPPER(COALESCE(table_template, '')) LIKE '%BACCARAT%'
+                )
+            )
+            SELECT
+              g.game_id AS "GameId",
+              g.shoe_id AS "ShoeId",
+              g.shoe_game_count AS "ShoeGameCount",
+              g.card_p1 AS "CardP1",
+              g.card_p2 AS "CardP2",
+              g.card_p3 AS "CardP3",
+              g.card_b1 AS "CardB1",
+              g.card_b2 AS "CardB2",
+              g.card_b3 AS "CardB3",
+              g.player_score AS "PlayerScore",
+              g.banker_score AS "BankerScore",
+              COALESCE(g.outcome, g.game_result) AS "Outcome",
+              g.game_start_dtm AS "GameStartDtm",
+              g.payout_complete_dtm AS "PayoutCompleteDtm",
+              g.gaming_day AS "GamingDay",
+              g.table_id AS "TableId",
+              g.table_name AS "TableName",
+              g.pit_name AS "PitName",
+              g.gaming_area AS "GamingArea",
+              g.game_type AS "GameType",
+              g.game_status AS "GameStatus"
+            FROM t_game g
+            JOIN active_shoes active ON active.shoe_id = g.shoe_id
+            WHERE g.payout_complete_dtm <= :end_ts
+              AND g.game_id IS NOT NULL
+              AND g.shoe_id IS NOT NULL
+              AND (
+                UPPER(COALESCE(g.game_type, '')) LIKE '%BACCARAT%'
+                OR UPPER(COALESCE(g.game_variant, '')) LIKE '%BACCARAT%'
+                OR UPPER(COALESCE(g.table_template, '')) LIKE '%BACCARAT%'
+              )
+            ORDER BY g.shoe_id, g.shoe_game_count, g.game_start_dtm, g.game_id
+          params:
+            start_ts: "{{ start_ts }}"
+            end_ts: "{{ end_ts }}"
+          df_columns: ["GameId", "ShoeId", "ShoeGameCount", "CardP1", "CardP2", "CardP3", "CardB1", "CardB2", "CardB3", "PlayerScore", "BankerScore", "Outcome", "GameStartDtm", "PayoutCompleteDtm", "GamingDay", "TableId", "TableName", "PitName", "GamingArea", "GameType", "GameStatus"]
+
+      model_store:
+        provider: custom
+        version: recommended
+
+      output:
+        adapter: app.inference.prediction_adapters:generic_insight_event_adapter
+        entity_mappings:
+          - type: SHOE
+            field: shoe_id
+            present_in_user_interface: true
+          - type: GAME
+            field: game_id
+            present_in_user_interface: false
+          - type: TABLE
+            field: table_id
+            present_in_user_interface: true
+        actions:
+          available: ["review", "export"]
+          default: review
+          time_to_live: 15
+
+      kafka:
+        topic: cortex-floor-insights
+        key_field: shoe_id

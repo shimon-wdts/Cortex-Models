@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import subprocess
+import os
+import sys
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from prefect.client.schemas.schedules import CronSchedule, IntervalSchedule, RRuleSchedule
@@ -10,6 +13,8 @@ from prefect.deployments.runner import EntrypointType
 from app.flows.inference import full_pipeline_flow
 from app.models.pipeline_contracts import ExecutionMode, ScheduleConfig
 from app.services.model_registry import get_model_registry
+
+DEFAULT_WORKER_WORKING_DIR = "/app"
 
 
 def deploy_configured_models() -> list[str]:
@@ -23,10 +28,15 @@ def deploy_configured_models() -> list[str]:
         _ensure_work_pool(work_pool_name, work_pool_type)
 
     for model_name, config in registry.list_models().items():
+        working_dir = _prefect_working_dir()
         deployment_id = full_pipeline_flow.deploy(
             name=model_name,
             work_pool_name=work_pool_name,
             work_queue_name=work_queue_name,
+            job_variables={
+                "working_dir": working_dir,
+                "env": _flow_run_env(working_dir),
+            },
             build=False,
             push=False,
             schedule=_prefect_schedule(config.schedule) if config.schedule.enabled else None,
@@ -70,7 +80,7 @@ def deploy_configured_models() -> list[str]:
 
 def _ensure_work_pool(work_pool_name: str, work_pool_type: str) -> None:
     inspect_result = subprocess.run(
-        ["prefect", "work-pool", "inspect", work_pool_name],
+        [sys.executable, "-m", "prefect", "work-pool", "inspect", work_pool_name],
         check=False,
         capture_output=True,
         text=True,
@@ -80,6 +90,8 @@ def _ensure_work_pool(work_pool_name: str, work_pool_type: str) -> None:
 
     subprocess.run(
         [
+            sys.executable,
+            "-m",
             "prefect",
             "work-pool",
             "create",
@@ -90,6 +102,25 @@ def _ensure_work_pool(work_pool_name: str, work_pool_type: str) -> None:
         ],
         check=True,
     )
+
+
+def _prefect_working_dir() -> str:
+    return os.getenv("PREFECT_WORKING_DIR", DEFAULT_WORKER_WORKING_DIR)
+
+
+def _flow_run_env(working_dir: str) -> dict[str, str]:
+    env = {
+        "PYTHONPATH": os.getenv("PREFECT_PYTHONPATH", working_dir),
+        "CORTEX_ENV": os.getenv("CORTEX_ENV", "local"),
+    }
+    for key in (
+        "CORTEX_MODEL_REGISTRY__KAFKA__BOOTSTRAP_SERVERS",
+        "CORTEX_MODEL_REGISTRY__POSTGRES__REPLICA_URL",
+    ):
+        value = os.getenv(key)
+        if value:
+            env[key] = value
+    return env
 
 
 def _prefect_schedule(config: ScheduleConfig) -> Any:

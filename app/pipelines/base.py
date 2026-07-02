@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
-from prefect.context import RunContext
+
+if TYPE_CHECKING:
+    from prefect.context import RunContext
 
 
 class Pipeline:
     def get_query_params(self, parameters: dict[str, Any]) -> dict[str, Any]:
         return dict(parameters)
 
-    def build_feature(self, raw_data: dict[str, pd.DataFrame], context: RunContext) -> Any:
+    def build_feature(self, raw_data: dict[str, pd.DataFrame], context: "RunContext") -> Any:
         pass
 
     def run_inference(self, features: Any, context: RunContext) -> Any:
