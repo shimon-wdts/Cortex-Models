@@ -4,3 +4,15 @@ log:
 
 pas:
   base_url: https://uat-pas.example.com
+
+model_registry:
+  kafka:
+    bootstrap_servers: <node-ip>:32100
+    client_id: cortex-models
+    acks: all
+    security_protocol: SASL_SSL
+    sasl_mechanism: SCRAM-SHA-512
+    sasl_username: model-inference
+    sasl_password: dIZVrQiEhvW7a3fPh60KdLPjFkQpTfXN
+    ssl_ca_location: app/resources/ca.crt
+    topic_model_service_insights: model-service-insights

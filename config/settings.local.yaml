@@ -3,10 +3,14 @@ model_registry:
     replica_url: postgresql+psycopg://wdts_admin:fot_wdtsf07@172.19.10.8:5432/wdts_reportdb?options=-c%20search_path%3Dwdts_reporting
 
   kafka:
-    bootstrap_servers: localhost:9092
+    # bootstrap_servers: localhost:9092
+    # bootstrap_servers: kafka-kafka-bootstrap.kafka.svc.cluster.local:32100
+    bootstrap_servers: uat-kafka-bootstrap-cortex-floor.wdts.local:32100
     client_id: cortex-models
     acks: all
-
+    security_protocol: SASL_SSL
+    sasl_mechanism: SCRAM-SHA-512
+    sasl_username: model-inference
   models:
     predicted_fills:
       enabled: true

@@ -3,24 +3,34 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.models.pipeline_contracts import InsightEvent
-
-
 class KafkaPredictionPublisher:
     def __init__(
         self,
         bootstrap_servers: str,
         client_id: str = "cortex-models",
         acks: str = "all",
+        security_protocol: str | None = None,
+        sasl_mechanism: str | None = None,
+        sasl_username: str | None = None,
+        sasl_password: str | None = None,
+        ssl_ca_location: str | None = None,
         extra_config: dict[str, Any] | None = None,
     ) -> None:
         from confluent_kafka import Producer
+
         if not bootstrap_servers:
             raise ValueError("Kafka bootstrap servers are not configured")
         config = {
             "bootstrap.servers": bootstrap_servers,
             "client.id": client_id,
             "acks": acks,
+            **_configured_security_options(
+                security_protocol=security_protocol,
+                sasl_mechanism=sasl_mechanism,
+                sasl_username=sasl_username,
+                sasl_password=sasl_password,
+                ssl_ca_location=ssl_ca_location,
+            ),
             **(extra_config or {}),
         }
         self._producer = Producer(config)
@@ -47,6 +57,24 @@ class KafkaPredictionPublisher:
         if delivery_errors:
             raise delivery_errors[0]
         return len(events)
+
+
+def _configured_security_options(
+    *,
+    security_protocol: str | None,
+    sasl_mechanism: str | None,
+    sasl_username: str | None,
+    sasl_password: str | None,
+    ssl_ca_location: str | None,
+) -> dict[str, str]:
+    options = {
+        "security.protocol": security_protocol,
+        "sasl.mechanism": sasl_mechanism,
+        "sasl.username": sasl_username,
+        "sasl.password": sasl_password,
+        "ssl.ca.location": ssl_ca_location,
+    }
+    return {key: value for key, value in options.items() if value}
 
 
 def _event_key(payload: dict[str, Any], key_field: str | None) -> str | None:

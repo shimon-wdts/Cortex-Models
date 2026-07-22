@@ -132,6 +132,11 @@ def publish_predictions(
             bootstrap_servers=kafka_config.get("bootstrap_servers", ""),
             client_id=kafka_config.get("client_id", "cortex-models"),
             acks=kafka_config.get("acks", "all"),
+            security_protocol=kafka_config.get("security_protocol"),
+            sasl_mechanism=kafka_config.get("sasl_mechanism"),
+            sasl_username=kafka_config.get("sasl_username"),
+            sasl_password=kafka_config.get("sasl_password"),
+            ssl_ca_location=kafka_config.get("ssl_ca_location"),
             extra_config=kafka_config.get("producer_config"),
         )
         published = publisher.publish_many(

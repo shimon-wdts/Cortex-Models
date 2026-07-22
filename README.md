@@ -1,299 +1,444 @@
 # Cortex-Models
 
-**Cortex‑Models** is a high‑performance machine‑learning inference service that exposes unified APIs for predictive models (for example, table‑fill and advantageous‑shoe estimators).
-It is designed for **low‑latency**, **reliable**, and **real‑time decisioning** within the Cortex platform.
-
----
+`Cortex-Models` runs model inference pipelines for the Cortex platform. The current operational path is Prefect-first: Prefect owns scheduling, manual runs, task retries, flow history, and workers; the model code owns extraction, feature engineering, inference, and publishing.
 
 ## Quick Start
 
-### Docker (recommended)
+This project uses `uv` for dependency management. `uv sync` reads `pyproject.toml` and `uv.lock`, creates or updates the local `.venv`, and installs the pinned dependency set.
+
+### macOS/Linux
+
+Install `uv`:
 
 ```bash
-docker build -t cortex-models .
-docker run --rm -p 8000:8000 cortex-models
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+Create the virtual environment and install dependencies:
 
-Local (Python):
-
-macOS / Linux
 ```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+uv venv --python 3.13
+source .venv/bin/activate
+uv sync
+```
+
+Check the install:
+
+```bash
+.venv/bin/python --version
+.venv/bin/prefect version
+```
+
+### Windows PowerShell
+
+Install `uv`:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Create the virtual environment and install dependencies:
+
+```powershell
+uv venv --python 3.13
+.venv\Scripts\Activate.ps1
+uv sync
+```
+
+Check the install:
+
+```powershell
+.venv\Scripts\python.exe --version
+.venv\Scripts\prefect.exe version
+```
+
+### Windows CMD
+
+Install `uv`:
+
+```bat
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Create the virtual environment and install dependencies:
+
+```bat
+uv venv --python 3.13
+.venv\Scripts\activate.bat
+uv sync
+```
+
+Check the install:
+
+```bat
+.venv\Scripts\python.exe --version
+.venv\Scripts\prefect.exe version
+```
+
+## Run Prefect Server And Worker
+
+Use PostgreSQL for the Prefect server database. SQLite can work for very small local tests, but Prefect server services and worker polling can produce repeated `sqlite3.OperationalError: database is locked` errors.
+
+### 1. Start A PostgreSQL DB For Prefect
+
+Example with Docker:
+
+```bash
+docker run --name prefect-db \
+  -e POSTGRES_USER=prefect \
+  -e POSTGRES_PASSWORD=prefect \
+  -e POSTGRES_DB=prefect \
+  -p 5433:5432 \
+  -d postgres:16
+```
+
+If the container already exists:
+
+```bash
+docker start prefect-db
+```
+
+### 2. Start The Prefect Server
+
+macOS/Linux:
+
+```bash
+export PREFECT_API_URL=http://127.0.0.1:4200/api
+export PREFECT_API_DATABASE_CONNECTION_URL=postgresql+asyncpg://prefect:prefect@127.0.0.1:5433/prefect
+
+.venv/bin/prefect server start
 ```
 
 Windows PowerShell:
 
 ```powershell
-python -m venv venv
-venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+$env:PREFECT_API_URL = "http://127.0.0.1:4200/api"
+$env:PREFECT_API_DATABASE_CONNECTION_URL = "postgresql+asyncpg://prefect:prefect@127.0.0.1:5433/prefect"
+
+.venv\Scripts\prefect.exe server start
 ```
 
 Windows CMD:
 
 ```bat
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+set PREFECT_API_URL=http://127.0.0.1:4200/api
+set PREFECT_API_DATABASE_CONNECTION_URL=postgresql+asyncpg://prefect:prefect@127.0.0.1:5433/prefect
+
+.venv\Scripts\prefect.exe server start
 ```
 
-Open `http://127.0.0.1:8000/docs` in your browser.
+Open the Prefect UI at `http://127.0.0.1:4200`.
 
-## Run the API (local)
+### 3. Create Or Update Deployments
+
+Run this in a second terminal after the Prefect server is healthy:
+
+macOS/Linux:
 
 ```bash
-uvicorn app.main:app --reload
+export PREFECT_API_URL=http://127.0.0.1:4200/api
+export CORTEX_ENV=local
+
+.venv/bin/python -m app.flows.deployments
 ```
 
-`--reload` is for development only.
+Windows PowerShell:
 
-To run in a specific environment (dev/uat/prod), set `CORTEX_ENV` and use the production server settings:
+```powershell
+$env:PREFECT_API_URL = "http://127.0.0.1:4200/api"
+$env:CORTEX_ENV = "local"
+
+.venv\Scripts\python.exe -m app.flows.deployments
+```
+
+Windows CMD:
+
+```bat
+set PREFECT_API_URL=http://127.0.0.1:4200/api
+set CORTEX_ENV=local
+
+.venv\Scripts\python.exe -m app.flows.deployments
+```
+
+The deployment helper reads `config/models.yaml` and environment overrides, ensures the configured work pool exists, and deploys enabled models.
+
+### 4. Start The Worker
+
+Run the worker in another terminal:
+
+macOS/Linux:
 
 ```bash
-export CORTEX_ENV=uat  # or dev / prod
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+export PREFECT_API_URL=http://127.0.0.1:4200/api
+export CORTEX_ENV=local
+
+.venv/bin/prefect worker start -p cortex-models --type process
 ```
 
-The service listens on port 8000. Docs endpoint: `http://127.0.0.1:8000/docs`.
+Windows PowerShell:
 
-## API Overview
+```powershell
+$env:PREFECT_API_URL = "http://127.0.0.1:4200/api"
+$env:CORTEX_ENV = "local"
 
-- `GET /health` — health check
-- `GET /metrics` — Prometheus metrics
-- `GET /alerts/fill` — list fill alerts (supports `limit`, `offset`, `start_time`, `end_time`)
-- `POST /alerts/acknowledge/{alert_id}` — acknowledge an alert
-- `POST /alerts/reject/{alert_id}` — reject an alert with a payload
+.venv\Scripts\prefect.exe worker start -p cortex-models --type process
+```
 
-For request/response schemas, see the interactive docs at `/docs`.
+Windows CMD:
 
-## Docker (build and run)
+```bat
+set PREFECT_API_URL=http://127.0.0.1:4200/api
+set CORTEX_ENV=local
 
-Build the image:
+.venv\Scripts\prefect.exe worker start -p cortex-models --type process
+```
+
+The worker only needs `PREFECT_API_URL`; the PostgreSQL connection string is only required by the Prefect server process.
+
+### 5. Trigger A Flow Run
+
+From the Prefect UI, open the `cortex-model-pipeline/predicted_fills` deployment and click **Run**.
+
+From the CLI:
 
 ```bash
-docker build -t cortex-models .
+PREFECT_API_URL=http://127.0.0.1:4200/api \
+.venv/bin/prefect deployment run 'cortex-model-pipeline/predicted_fills' \
+  --param model_name=predicted_fills \
+  --param execution_mode=manual \
+  --param parameters='{"end_ts":"2026-05-10 12-00-00","json_limit":3}'
 ```
 
-Run the container:
+## Configuration
 
-```bash
-docker run --rm -p 8000:8000 cortex-models
+Settings are loaded in this order:
+
+```text
+config/settings.yaml
+config/models.yaml
+config/settings.{CORTEX_ENV}.yaml
+config/models.{CORTEX_ENV}.yaml
 ```
 
-Override the environment at runtime:
-
-```bash
-docker run --rm -p 8000:8000 -e CORTEX_ENV=prod cortex-models
-```
-
-## Configuration (Dynaconf)
-
-Settings are loaded in order from `config/settings.yaml`, `config/models.yaml`,
-`config/settings.{CORTEX_ENV}.yaml`, and `config/models.{CORTEX_ENV}.yaml` when
-those files exist. Later files override earlier values, and nested dictionaries
-are merged so a local `model_registry.postgres` override does not remove
-`model_registry.models`. Switch environments with `CORTEX_ENV=dev|uat|prod`.
-Environment variables with the `CORTEX_` prefix override YAML values (highest precedence).
+Later files override earlier values. Nested dictionaries are merged, so `config/settings.local.yaml` can override `model_registry.postgres.replica_url` without replacing the entire model registry.
 
 Common environment variables:
 
-- `CORTEX_ENV` — select the environment (`dev`, `uat`, `prod`)
-- `CORTEX_*` — override any Dynaconf setting via env vars
+- `CORTEX_ENV` selects local, dev, uat, or prod overrides.
+- `PREFECT_API_URL` points clients and workers at the Prefect server API.
+- `PREFECT_API_DATABASE_CONNECTION_URL` configures the Prefect server database.
+- `CORTEX_*` values can override Dynaconf settings.
 
-## Kubernetes scraping (Prometheus)
+## Prefect With PostgreSQL
 
-If you use annotations:
+Recommended local Prefect server DB:
 
-```yaml
-prometheus.io/scrape: "true"
-prometheus.io/port: "8000"
-prometheus.io/path: "/metrics"
+```bash
+PREFECT_API_DATABASE_CONNECTION_URL=postgresql+asyncpg://prefect:prefect@127.0.0.1:5433/prefect
 ```
 
-If you use a ServiceMonitor (Prometheus Operator), configure a `/metrics` endpoint on port 8000.
+Use PostgreSQL for any shared, long-running, or frequently polled Prefect setup. SQLite is sensitive to concurrent writes from the Prefect server, worker, UI, and background services.
+
+Important boundaries:
+
+- The Prefect server uses `PREFECT_API_DATABASE_CONNECTION_URL`.
+- The Prefect worker uses `PREFECT_API_URL`.
+- The model pipeline source database is configured separately under `model_registry.postgres.replica_url`.
 
 ## Inference Platform Architecture
 
-This service separates orchestration from model business logic:
+The inference platform separates orchestration, model runtime, and publishing:
 
-- **Prefect** is the model orchestration control plane. It owns scheduling, manual runs, retries, run state, execution history, and workers.
-- **FastAPI** currently contains existing alert endpoints only; model deployment runs are triggered from Prefect UI, CLI, or API.
-- **Postgres replica** is the operational data source for batch extraction.
-- **Feature builders** are configurable Python callables that convert raw query results into model-ready features.
-- **Model loading** is abstracted behind `app.clients.model_store`; MLflow is the default implementation.
-- **Kafka** is used only to publish validated insight events after inference.
-
-Scheduled and manually triggered runs execute the same Prefect flow code. Scheduled full-pipeline deployments default to `execution_mode=scheduled`; manual runs can override `execution_mode=manual`, and step deployments default to `manual`.
+- **Prefect server** stores deployments, schedules, flow runs, task runs, logs, and state transitions.
+- **Prefect worker** polls the `cortex-models` work pool and executes flow runs in local processes.
+- **Deployment helper** in `app.flows.deployments` reads model config and creates Prefect deployments for enabled models.
+- **Pipeline flow** in `app.flows.inference` executes extraction, feature engineering, inference, and publishing as Prefect tasks.
+- **Model registry** in `app.services.model_registry` loads model definitions from Dynaconf.
+- **Operational Postgres replica** is the source for model input queries.
+- **Model store** in `app.clients.model_store` loads MLflow or custom model artifacts.
+- **Kafka publisher** emits final prediction or insight payloads to configured topics.
+- **Observability** is split between Prefect state/logs and application-level structured metrics.
 
 ## Folder Layout
 
 ```text
 app/
-  api/
-    routes.py             # Existing alert endpoints
   clients/
-    kafka.py              # Kafka prediction publisher
-    model_store.py        # MLflow/custom model loading abstraction
-    postgres.py           # Postgres replica query client
-  features/
-    builders.py           # Feature builder callables
+    kafka.py               # Kafka prediction publisher
+    model_store.py         # MLflow/custom model loading abstraction
+    postgres.py            # Postgres query client
   flows/
-    deployments.py        # Config-driven Prefect deployment helper
-    inference.py          # Full pipeline and step-level Prefect flows
+    deployments.py         # Config-driven Prefect deployment helper
+    inference.py           # Full pipeline Prefect flow and tasks
   inference/
-    prediction_adapters.py # Inference/output event adapters
+    prediction_adapters.py # Insight-event adapter helpers
   models/
-    pipeline_contracts.py # Config, pipeline, and Kafka event schemas
+    pipeline_contracts.py  # Config, run context, and event schemas
   pipelines/
-    base.py               # Pipeline extension base class
-    predicted_fills/      # Predicted fills pipeline-specific behavior
+    base.py                # Pipeline extension base class
+    predicted_fills/       # Predicted fills model-specific logic
   services/
-    model_registry.py     # Reads model configs from Dynaconf
-    observability.py      # Structured step logs and metrics
-    pipeline.py           # Testable pipeline business logic
+    model_registry.py      # Reads model configs from Dynaconf
+    observability.py       # Structured step logs and metrics
+    pipeline.py            # Testable pipeline business logic
 config/
-  models.yaml             # Model registry and sample PlayerPerformance config
+  models.yaml              # Model registry and deployment config
+  settings.local.yaml      # Local environment overrides
 ```
 
 ## Model Config
 
 Model behavior is driven by `config/models.yaml`, with optional environment overrides in `config/models.dev.yaml`, `config/models.uat.yaml`, and `config/models.prod.yaml`.
 
-Each model defines:
+The top-level `model_registry` contains:
 
-- `enabled`
-- `description` and `version`
-- `type` and `source`
-- default runtime `parameters`
-- `schedule`
-- SQL `queries`
-- query `df_columns` for preserving schemas on empty query results
-- feature builder path and `feature_version`
-- model store provider and `model_version`
-- inference adapter
-- output adapter and entity mappings
-- Kafka topic and key
+- `prefect`: work pool name, work pool type, work queue, and deployment settings.
+- `postgres`: source database connection for model extraction.
+- `kafka`: Kafka producer bootstrap servers and producer options.
+- `models`: one config block per model.
 
-The default sample config defines `predicted_fills` for a `PredictedFills` model with MLflow version `10.2.0`, feature version `1.0`, a cron schedule, and Kafka topic `cortex.insights.predicted-fills`.
+Each model config defines:
 
-`predicted_fills` derives query window parameters when they are not supplied:
+- `enabled`, `description`, `version`, `features_version`, `type`, and `source`.
+- `parameters` used as default runtime parameters.
+- `schedule` with `enabled`, `type`, `cron` or interval/rrule fields, timezone, and concurrency limit.
+- `queries`, including SQL, templated params, and `df_columns` for empty result preservation.
+- `model_store` provider, tracking URI, registered model name, version, URI, or custom loader.
+- `output` adapter, entity mappings, actions, and output schema behavior.
+- `kafka.topic` and `kafka.key_field`.
 
-- `end_ts` defaults to `current_time`, or can be supplied as a datetime such as `2026-06-21_10-00-00`
-- `start_ts` defaults to `end_ts - start_offset_min`
-- `start_offset_min` defaults to `15`
-- `history_window_min` defaults to `60`
-- `horizon60_min` defaults to `60`
-- `lower_bound = start_ts - history_window_min`
-- `upper_bound = end_ts + horizon60_min`
+The current `predicted_fills` model:
 
-## Kafka Insight Event
+- Uses the `PredictedFills` pipeline implementation.
+- Reads tray scans, chip inventory, chip updates, bets, and topology data.
+- Loads MLflow model version `10.2.0` by default.
+- Publishes to Kafka topic `cortex-floor-insights`.
+- Uses `key_field: table_id`, so Kafka records are keyed by table when that field is present.
 
-Every published prediction is validated as an `InsightEvent` before publishing. The event carries:
+Runtime parameters can be overridden when a flow run is triggered. `predicted_fills` accepts parameters such as:
 
-- `insights_id`
-- `occurred_at`
-- `gaming_day`
-- `source`
-- `env`
-- `version`
-- `model.type`
-- `model.version`
-- `model.feature_version`
-- `model.run_id`
-- `entity`
-- `severity`
-- `payload`
+- `end_ts`
+- `start_offset_min`
+- `snapshot_minute`
+- `threshold`
+- `json_limit`
+- `opportunistic_min_prob`
+- `avoided_future_trip_minutes`
+- `same_pit_extra_stop_minutes`
+- `max_extra_stops_per_route`
 
-The generic output adapter maps configured entity fields into the `entity` list and places model-specific output into `payload.result`, `payload.presentation`, and `payload.actions`.
+## Kafka Publishing
+
+The publish step sends prediction records to the configured Kafka topic. The Kafka key is derived from `kafka.key_field`.
+
+If the configured key field matches an entity type, the publisher uses that entity id. Otherwise it falls back to a top-level field of the same name. For example, with `key_field: table_id`, records with a top-level `table_id` are keyed by that value.
 
 ## Prefect Flow Design
 
-Full pipeline flow:
+`full_pipeline_flow` is the main deployment flow:
 
 ```text
 cortex-model-pipeline
-  extract_data_task
-  feature_engineering_task
-  inference_task
-  publish_predictions_task
+  extract-data
+  feature-engineering
+  inference
+  publish-predictions
 ```
 
-Step-level flow:
+Flow behavior:
 
-```text
-cortex-model-step
-  single_step_task(step=extract_data | feature_engineering | inference | publish)
-```
+- `create_run_context` resolves model name, execution mode, runtime parameters, query parameters, and model-store path.
+- `extract-data` reads configured SQL queries from the operational Postgres replica.
+- `feature-engineering` converts raw frames into model-ready features.
+- `inference` loads or runs the model-specific inference path.
+- `publish-predictions` publishes final records to Kafka and records publish metrics.
 
-Create/update deployments from config:
+Deployments are created by:
 
 ```bash
-python -m app.flows.deployments
+PREFECT_API_URL=http://127.0.0.1:4200/api \
+CORTEX_ENV=local \
+.venv/bin/python -m app.flows.deployments
 ```
 
-Run a local process worker:
+The deployment helper currently deploys enabled full-pipeline model deployments. Step-level deployments are not active in the current code path.
 
-```bash
-prefect worker start -p cortex-models --type process
-```
-
-For production, use a work pool that matches the runtime platform, usually Kubernetes or Docker. Schedules should be changed through Prefect deployment configuration, not by adding scheduler code to this service.
+For production, use a work pool that matches the runtime platform, usually Kubernetes or Docker. Schedules should be changed through Prefect deployment configuration, not by adding a scheduler loop inside this service.
 
 ## Manual Runs
 
-Trigger deployment runs from Prefect UI or CLI. For example, trigger the full pipeline:
+Trigger deployment runs from the Prefect UI or CLI.
+
+Minimal full-pipeline run:
 
 ```bash
-prefect deployment run 'cortex-model-pipeline/predicted_fills' \
+PREFECT_API_URL=http://127.0.0.1:4200/api \
+.venv/bin/prefect deployment run 'cortex-model-pipeline/predicted_fills' \
   --param model_name=predicted_fills \
-  --param execution_mode=manual \
-  --param parameters='{"end_ts":"2026-06-21T10:00:00Z"}'
+  --param execution_mode=manual
 ```
 
-Trigger feature engineering only:
+Run with model parameters:
 
 ```bash
-prefect deployment run 'cortex-model-step/predicted_fills-feature_engineering' \
+PREFECT_API_URL=http://127.0.0.1:4200/api \
+.venv/bin/prefect deployment run 'cortex-model-pipeline/predicted_fills' \
   --param model_name=predicted_fills \
-  --param step=feature_engineering \
-  --param inputs='{"raw_data":{"load_tray_scans":[{"table_id":"BA0054","tray_balance":10000,"tray_ts":"2026-06-21T09:55:00Z"}]}}'
+  --param execution_mode=manual \
+  --param parameters='{"end_ts":"2026-05-10 12-00-00","json_limit":3}'
+```
+
+Inspect recent task runs:
+
+```bash
+PREFECT_API_URL=http://127.0.0.1:4200/api \
+.venv/bin/prefect task-run ls --limit 20
+```
+
+Watch a flow run:
+
+```bash
+PREFECT_API_URL=http://127.0.0.1:4200/api \
+.venv/bin/prefect flow-run watch <flow-run-id>
 ```
 
 ## Observability
 
-Each pipeline step emits structured JSON log events:
+Prefect is the source of truth for orchestration state:
+
+- deployment state
+- scheduled, pending, running, completed, failed, or cancelled flow runs
+- task retries and task states
+- worker assignment and infrastructure pid
+- run logs
+
+Application code emits structured JSON step events:
 
 - `model_step_started`
 - `model_step_completed`
 - `model_step_failed`
 - `model_step_rows`
 
-Prometheus metrics include model/run labels:
+Prometheus metrics include model and run labels:
 
 - `model_step_runs_total`
 - `model_step_duration_seconds`
 - `model_step_rows_total`
 - `model_predictions_published_total`
 
-Task failures are captured at the step boundary with `failure_type` and `failure_reason`, while Prefect remains the source of truth for task and flow states.
+Task failures include `failure_type` and `failure_reason` in structured logs. Use Prefect task-run state for orchestration diagnosis and application structured events for model-step diagnosis.
 
 ## Batch And Streaming-Like Models
 
-Batch models should use scheduled `cortex-model-pipeline` deployments with cron, interval, or rrule schedules.
+Batch models should use scheduled `cortex-model-pipeline` deployments with cron, interval, or rrule schedules. Use `schedule.enabled: true` only when the model should run automatically.
 
-Near-real-time models should still use Prefect deployments, but usually with:
+Near-real-time models can still run through Prefect, but should usually use:
 
-- disabled or no schedule
-- manual or event-triggered runs
-- tighter concurrency limits
-- smaller query windows
-- idempotency keys from the caller
-- a dedicated Kafka topic per model group where needed
+- no schedule, or a short controlled interval
+- explicit API/UI/CLI/event-triggered runs
+- tight concurrency limits
+- small query windows
+- idempotency keys from the caller where runs may be retried
+- model-specific Kafka topics when consumers need isolation
 
-For very high-frequency streaming workloads, keep Kafka as the event distribution layer and consider a separate consumer that triggers bounded Prefect runs or performs micro-batch aggregation. Avoid adding a polling scheduler inside this project.
+For high-frequency streaming workloads, keep Kafka as the distribution layer and use a separate consumer or micro-batch service to decide when to trigger bounded Prefect runs. Avoid adding a polling loop inside this project.

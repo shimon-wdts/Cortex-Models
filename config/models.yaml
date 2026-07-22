@@ -170,5 +170,5 @@ model_registry:
             scope: recommendation
 
       kafka:
-        topic: cortex-floor-insights
+        topic: model-service-insights
         key_field: table_id
