@@ -11,6 +11,9 @@ model_registry:
     security_protocol: SASL_SSL
     sasl_mechanism: SCRAM-SHA-512
     sasl_username: model-inference
+    sasl_password: 
+    ssl_ca_location: /Users/shimonshrem/dev/WDTS/Cortex-Models/app/resources/ca.crt
+    topic_model_service_insights: model-service-insights
   models:
     predicted_fills:
       enabled: true

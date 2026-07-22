@@ -1,0 +1,29 @@
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_HTTP_TIMEOUT=120 \
+    UV_LINK_MODE=copy \
+    PATH="/app/.venv/bin:${PATH}" \
+    CORTEX_ENV=uat
+
+# Install locked runtime dependencies before copying the application so that
+# this layer remains cached when only application code changes.
+COPY pyproject.toml uv.lock README.md ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
+
+COPY app ./app
+COPY config ./config
+
+# Install the Cortex package into the virtual environment. The same image can
+# then be used by a Kubernetes Job to run `python -m app.flows.deployments`.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+# Deployment registration is intentionally not run here: it needs the Prefect
+# API to be healthy and should be executed by a separate Kubernetes Job.
+CMD ["prefect", "worker", "start", "--pool", "cortex-models", "--type", "process"]
