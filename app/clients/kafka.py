@@ -14,6 +14,7 @@ class KafkaPredictionPublisher:
         sasl_username: str | None = None,
         sasl_password: str | None = None,
         ssl_ca_location: str | None = None,
+        ssl_endpoint_identification_algorithm: str | None = None,
         extra_config: dict[str, Any] | None = None,
     ) -> None:
         from confluent_kafka import Producer
@@ -30,6 +31,7 @@ class KafkaPredictionPublisher:
                 sasl_username=sasl_username,
                 sasl_password=sasl_password,
                 ssl_ca_location=ssl_ca_location,
+                ssl_endpoint_identification_algorithm=ssl_endpoint_identification_algorithm,
             ),
             **(extra_config or {}),
         }
@@ -66,6 +68,7 @@ def _configured_security_options(
     sasl_username: str | None,
     sasl_password: str | None,
     ssl_ca_location: str | None,
+    ssl_endpoint_identification_algorithm: str | None,
 ) -> dict[str, str]:
     options = {
         "security.protocol": security_protocol,
@@ -73,6 +76,7 @@ def _configured_security_options(
         "sasl.username": sasl_username,
         "sasl.password": sasl_password,
         "ssl.ca.location": ssl_ca_location,
+        "ssl.endpoint.identification.algorithm": ssl_endpoint_identification_algorithm,
     }
     return {key: value for key, value in options.items() if value}
 

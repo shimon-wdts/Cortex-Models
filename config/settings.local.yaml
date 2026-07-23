@@ -14,6 +14,7 @@ model_registry:
     sasl_password: 
     ssl_ca_location: /Users/shimonshrem/dev/WDTS/Cortex-Models/app/resources/ca.crt
     topic_model_service_insights: model-service-insights
+    ssl_endpoint_identification_algorithm: none # UAT NodePort advertises broker IPs not present in the certificate SANs
   models:
     predicted_fills:
       enabled: true

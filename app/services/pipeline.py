@@ -137,6 +137,7 @@ def publish_predictions(
             sasl_username=kafka_config.get("sasl_username"),
             sasl_password=kafka_config.get("sasl_password"),
             ssl_ca_location=kafka_config.get("ssl_ca_location"),
+            ssl_endpoint_identification_algorithm=kafka_config.get("ssl_endpoint_identification_algorithm"),
             extra_config=kafka_config.get("producer_config"),
         )
         published = publisher.publish_many(
