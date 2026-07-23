@@ -7,9 +7,9 @@ pas:
 
 model_registry:
   postgres:
-    replica_url: postgresql+psycopg://wdts_admin:fot_wdtsf07@172.19.10.8:5432/wdts_reportdb?options=-c%20search_path%3Dwdts_reporting
+    replica_url: postgresql+psycopg://wdts_admin:**********@172.19.10.8:5432/wdts_reportdb?options=-c%20search_path%3Dwdts_reporting
   kafka:
-    bootstrap_servers: <node-ip>:32100
+    bootstrap_servers: uat-kafka-bootstrap-cortex-floor.wdts.local:32100
     client_id: cortex-models
     acks: all
     security_protocol: SASL_SSL
@@ -17,5 +17,4 @@ model_registry:
     sasl_username: model-inference
     sasl_password: 
     ssl_ca_location: <path>/ca.crt
-    topic_model_service_insights: model-service-insights
     ssl_endpoint_identification_algorithm: https
