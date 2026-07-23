@@ -1,0 +1,100 @@
+﻿{
+    "model_type":  "catboost_proxy_future_behavior",
+    "training_rows":  7204,
+    "features":  [
+                     "active_days",
+                     "num_sessions",
+                     "hours_played",
+                     "avg_session_hours",
+                     "session_continuation_rate",
+                     "chase_rate",
+                     "loss_exit_rate",
+                     "post_loss_stop_rate",
+                     "volatility_score_behavior",
+                     "bet_spread_ratio",
+                     "side_bet_rate",
+                     "side_handle_pct",
+                     "baccarat_engagement_pct",
+                     "blackjack_engagement_pct",
+                     "game_concentration_pct",
+                     "ceiling_pressure_score",
+                     "range_width_score",
+                     "stretch_capacity_score",
+                     "rhythm_score",
+                     "session_fade_score",
+                     "post_loss_response_score",
+                     "game_affinity_score",
+                     "table_fit_score",
+                     "confidence_need_score",
+                     "cohort_id",
+                     "cohort_distance",
+                     "cohort_confidence_score",
+                     "worth_raw",
+                     "theo",
+                     "turnover",
+                     "avg_bet",
+                     "cash_buy_in",
+                     "credit_line",
+                     "hidden_opportunity_score",
+                     "period",
+                     "primary_game",
+                     "primary_behavior",
+                     "side_bet_intensity",
+                     "risk_volatility_label",
+                     "engagement_label",
+                     "cohort_label",
+                     "cohort_model_label"
+                 ],
+    "categorical_features":  [
+                                 "period",
+                                 "primary_game",
+                                 "primary_behavior",
+                                 "side_bet_intensity",
+                                 "risk_volatility_label",
+                                 "engagement_label",
+                                 "cohort_label",
+                                 "cohort_model_label"
+                             ],
+    "models":  {
+                   "engagement_lift":  {
+                                           "target":  "target_engagement_lift_next_week",
+                                           "description":  "Player is likely to increase visit/time engagement in the next observed week.",
+                                           "positives":  1250,
+                                           "negatives":  5954,
+                                           "status":  "trained",
+                                           "path":  "recommendation_models/engagement_lift.cbm"
+                                       },
+                   "tilt_risk":  {
+                                     "target":  "target_tilt_risk_next_week",
+                                     "description":  "Player is likely to show rising chase, volatility, or loss-exit behavior.",
+                                     "positives":  852,
+                                     "negatives":  6352,
+                                     "status":  "trained",
+                                     "path":  "recommendation_models/tilt_risk.cbm"
+                                 },
+                   "baccarat_engagement":  {
+                                               "target":  "target_baccarat_engagement_next_week",
+                                               "description":  "Player is likely to show stronger Baccarat engagement next week.",
+                                               "positives":  2518,
+                                               "negatives":  4686,
+                                               "status":  "trained",
+                                               "path":  "recommendation_models/baccarat_engagement.cbm"
+                                           },
+                   "side_bet_engagement":  {
+                                               "target":  "target_side_bet_engagement_next_week",
+                                               "description":  "Player is likely to keep or grow side-bet-heavy behavior.",
+                                               "positives":  5112,
+                                               "negatives":  2092,
+                                               "status":  "trained",
+                                               "path":  "recommendation_models/side_bet_engagement.cbm"
+                                           },
+                   "limit_path_readiness":  {
+                                                "target":  "target_limit_path_readiness_next_week",
+                                                "description":  "Player is likely to show stronger upper-range or stretch behavior next week.",
+                                                "positives":  2383,
+                                                "negatives":  4821,
+                                                "status":  "trained",
+                                                "path":  "recommendation_models/limit_path_readiness.cbm"
+                                            }
+               }
+}

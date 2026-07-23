@@ -17,6 +17,155 @@ model_registry:
     client_id: cortex-models
     acks: all
 
+  cohort_model_store: &cohort_model_store
+    provider: custom
+    version: "0.1.0"
+    uri: cohorts
+
+  cohort_player_output: &cohort_player_output
+    adapter: app.inference.prediction_adapters:generic_insight_event_adapter
+    entity_mappings:
+      - type: Player
+        field: player_id
+        present_in_user_interface: true
+      - type: SESSION
+        field: latest_session_id
+        present_in_user_interface: false
+    actions:
+      available: ["review", "export"]
+      default: review
+      time_to_live: 30
+      export:
+        formats: ["pdf", "csv"]
+        scope: recommendation
+
+  cohort_kafka: &cohort_kafka
+    topic: cortex-floor-insights
+    key_field: player_id
+
+  cohort_queries: &cohort_queries
+    - name: games
+      sql: |
+        SELECT
+          game_id AS "GameId",
+          game_start_dtm AS "GameStartDtm",
+          gaming_day AS "GamingDay",
+          game_type AS "GameType",
+          outcome AS "Outcome",
+          game_result AS "GameResult",
+          shoe_id AS "ShoeId",
+          shoe_game_count AS "ShoeGameCount",
+          table_id AS "TableId",
+          table_name AS "TableName",
+          pit_name AS "PitName",
+          gaming_area AS "GamingArea",
+          num_players AS "NumPlayers",
+          num_positions AS "NumPositions"
+        FROM "t_game_CrowneFeb26"
+        WHERE gaming_day >= :gaming_day_start
+          AND gaming_day < :gaming_day_end_exclusive
+          AND game_id IS NOT NULL
+        ORDER BY gaming_day, game_start_dtm, game_id
+        LIMIT :limit_games
+      params:
+        gaming_day_start: "{{ gaming_day_start }}"
+        gaming_day_end_exclusive: "{{ gaming_day_end_exclusive }}"
+        limit_games: "{{ limit_games }}"
+      df_columns: ["GameId", "GameStartDtm", "GamingDay", "GameType", "Outcome", "GameResult", "ShoeId", "ShoeGameCount", "TableId", "TableName", "PitName", "GamingArea", "NumPlayers", "NumPositions"]
+
+    - name: bets
+      sql: |
+        WITH selected_games AS (
+          SELECT game_id
+          FROM "t_game_CrowneFeb26"
+          WHERE gaming_day >= :gaming_day_start
+            AND gaming_day < :gaming_day_end_exclusive
+            AND game_id IS NOT NULL
+          ORDER BY gaming_day, game_start_dtm, game_id
+          LIMIT :limit_games
+        )
+        SELECT
+          b.bet_id AS "BetId",
+          b.game_id AS "GameId",
+          b.session_id AS "SessionId",
+          b.player_id AS "PlayerId",
+          b.table_id AS "TableId",
+          b.bet_type AS "BetType",
+          b.type_of_bet AS "TypeOfBet",
+          b.short_bet_name_en AS "ShortBetNameEn",
+          b.wager AS "Wager",
+          b.casino_win AS "CasinoWin",
+          b.status AS "Status",
+          b.payout_complete_dtm AS "PayoutCompleteDtm"
+        FROM "t_bet_CrowneFeb26" b
+        JOIN selected_games g ON g.game_id = b.game_id
+        WHERE b.session_id IS NOT NULL
+          AND b.player_id IS NOT NULL
+        ORDER BY b.game_id, b.bet_id
+        LIMIT :limit_bets
+      params:
+        gaming_day_start: "{{ gaming_day_start }}"
+        gaming_day_end_exclusive: "{{ gaming_day_end_exclusive }}"
+        limit_games: "{{ limit_games }}"
+        limit_bets: "{{ limit_bets }}"
+      df_columns: ["BetId", "GameId", "SessionId", "PlayerId", "TableId", "BetType", "TypeOfBet", "ShortBetNameEn", "Wager", "CasinoWin", "Status", "PayoutCompleteDtm"]
+
+    - name: sessions
+      sql: |
+        WITH selected_games AS (
+          SELECT game_id
+          FROM "t_game_CrowneFeb26"
+          WHERE gaming_day >= :gaming_day_start
+            AND gaming_day < :gaming_day_end_exclusive
+            AND game_id IS NOT NULL
+          ORDER BY gaming_day, game_start_dtm, game_id
+          LIMIT :limit_games
+        ),
+        selected_bets AS (
+          SELECT b.session_id, b.player_id, b.game_id, b.bet_id
+          FROM "t_bet_CrowneFeb26" b
+          JOIN selected_games g ON g.game_id = b.game_id
+          WHERE b.session_id IS NOT NULL
+            AND b.player_id IS NOT NULL
+          ORDER BY b.game_id, b.bet_id
+          LIMIT :limit_bets
+        ),
+        selected_sessions AS (
+          SELECT DISTINCT session_id, player_id
+          FROM selected_bets
+        )
+        SELECT DISTINCT
+          s.session_id AS "SessionId",
+          s.table_id AS "TableId",
+          s.player_id AS "PlayerId",
+          s.session_start_dtm AS "SessionStartDtm",
+          s.session_end_dtm AS "SessionEndDtm",
+          s.first_wager_game_start_dtm AS "FirstWagerGameStartDtm",
+          s.gaming_day AS "GamingDay",
+          s.num_bets AS "NumBets",
+          s.num_games_elapsed AS "NumGamesElapsed",
+          s.num_games_with_wager AS "NumGamesWithWager",
+          s.turnover AS "Turnover",
+          s.theo_win AS "TheoWin",
+          s.player_win AS "PlayerWin",
+          s.buyin AS "Buyin",
+          s.adjusted_theo_win AS "AdjustedTheoWin",
+          s.game_type AS "GameType",
+          s.pit_name AS "PitName",
+          s.gaming_area AS "GamingArea",
+          s.table_name AS "TableName"
+        FROM "t_session_CrowneFeb26" s
+        JOIN selected_sessions ss
+          ON ss.session_id = s.session_id
+         AND ss.player_id = s.player_id
+        ORDER BY s.gaming_day, s.session_start_dtm, s.session_id
+      params:
+        gaming_day_start: "{{ gaming_day_start }}"
+        gaming_day_end_exclusive: "{{ gaming_day_end_exclusive }}"
+        limit_games: "{{ limit_games }}"
+        limit_bets: "{{ limit_bets }}"
+      df_columns: ["SessionId", "TableId", "PlayerId", "SessionStartDtm", "SessionEndDtm", "FirstWagerGameStartDtm", "GamingDay", "NumBets", "NumGamesElapsed", "NumGamesWithWager", "Turnover", "TheoWin", "PlayerWin", "Buyin", "AdjustedTheoWin", "GameType", "PitName", "GamingArea", "TableName"]
+
   models:
     predicted_fills:
       enabled: true
@@ -277,3 +426,90 @@ model_registry:
       kafka:
         topic: cortex-floor-insights
         key_field: shoe_id
+
+    cohort:
+      enabled: true
+      description: Player cohort assignment inference pipeline
+      version: "1.0.0"
+      features_version: "1.0"
+      type: PlayerCohort
+      source: cortex.models.player-cohorts
+      output_schema_version: 1.0
+      severity_default: info
+      parameters:
+        gaming_day_start: "2025-10-01"
+        gaming_day_end: "2025-10-21"
+        limit_games: 500
+        limit_bets: 5000
+        json_limit: 25
+        recommend_all: true
+
+      schedule:
+        enabled: false
+        type: cron
+        cron: "0 8 * * *"
+        timezone: UTC
+        concurrency_limit: 1
+
+      queries: *cohort_queries
+      model_store: *cohort_model_store
+      output: *cohort_player_output
+      kafka: *cohort_kafka
+
+    cohort_tier_lift:
+      enabled: true
+      description: Cohort tier lift recommendation inference pipeline
+      version: "1.0.0"
+      features_version: "1.0"
+      type: CohortTierLift
+      source: cortex.models.cohort-tier-lift
+      output_schema_version: 1.0
+      severity_default: high
+      parameters:
+        gaming_day_start: "2025-10-01"
+        gaming_day_end: "2025-10-21"
+        limit_games: 500
+        limit_bets: 5000
+        json_limit: 25
+        recommend_all: true
+
+      schedule:
+        enabled: false
+        type: cron
+        cron: "0 8 * * *"
+        timezone: UTC
+        concurrency_limit: 1
+
+      queries: *cohort_queries
+      model_store: *cohort_model_store
+      output: *cohort_player_output
+      kafka: *cohort_kafka
+
+    playerscore:
+      enabled: true
+      description: Player performance score inference pipeline
+      version: "1.0.0"
+      features_version: "1.0"
+      type: PlayerPerformance
+      source: cortex.models.player-performance
+      output_schema_version: 1.0
+      severity_default: medium
+      parameters:
+        gaming_day_start: "2025-10-01"
+        gaming_day_end: "2025-10-21"
+        limit_games: 500
+        limit_bets: 5000
+        json_limit: 25
+        recommend_all: true
+
+      schedule:
+        enabled: false
+        type: cron
+        cron: "0 8 * * *"
+        timezone: UTC
+        concurrency_limit: 1
+
+      queries: *cohort_queries
+      model_store: *cohort_model_store
+      output: *cohort_player_output
+      kafka: *cohort_kafka

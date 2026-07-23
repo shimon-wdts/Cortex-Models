@@ -15,3 +15,4 @@ confluent-kafka==2.11.1
 mlflow==3.1.4
 xgboost==3.2.0
 lightgbm==4.6.0
+catboost==1.2.8

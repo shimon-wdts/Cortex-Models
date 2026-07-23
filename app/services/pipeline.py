@@ -50,6 +50,12 @@ def extract_data(
     registry = registry or get_model_registry()
     config = registry.get_model(context.model_name)
     with observe_step(context, PipelineStep.EXTRACT):
+        if context.query_parameters.get("_skip_extract"):
+            logger = get_run_logger()
+            logger.info(PipelineStep.EXTRACT + " skipped by pipeline parameters")
+            record_rows(context, PipelineStep.EXTRACT, 0)
+            return {}
+
         client = client or PostgresQueryClient(registry.postgres.get("replica_url", ""))
         data: dict[str, pd.DataFrame] = {}
         rows = 0

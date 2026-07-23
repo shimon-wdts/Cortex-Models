@@ -28,3 +28,32 @@ model_registry:
         start_offset_min: 10
         json_limit: 10
 
+    cohort:
+      enabled: true
+      parameters:
+        source_mode: db
+        gaming_day_start: "2025-10-01"
+        gaming_day_end: "2025-10-21"
+        limit_games: 2000
+        limit_bets: 10000
+        json_limit: 25
+
+    cohort_tier_lift:
+      enabled: true
+      parameters:
+        source_mode: db
+        gaming_day_start: "2025-10-01"
+        gaming_day_end: "2025-10-21"
+        limit_games: 2000
+        limit_bets: 10000
+        json_limit: 25
+
+    playerscore:
+      enabled: true
+      parameters:
+        source_mode: db
+        gaming_day_start: "2025-10-01"
+        gaming_day_end: "2025-10-21"
+        limit_games: 2000
+        limit_bets: 10000
+        json_limit: 25

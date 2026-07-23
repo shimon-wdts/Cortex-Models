@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from dynaconf import Dynaconf
@@ -62,6 +63,12 @@ class ModelRegistry:
     
     def get_model_store_dir(self, model_name: str) -> str:
         models_dir = settings.dirs.get("models_dir")
+        config = self.get_model(model_name, include_disabled=True)
+        if config.model_store.uri:
+            uri = Path(config.model_store.uri)
+            if uri.is_absolute():
+                return str(uri)
+            return str(models_dir / uri) if models_dir else str(uri)
         return str(models_dir / model_name) if models_dir else model_name
 
 

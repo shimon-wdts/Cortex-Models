@@ -10,6 +10,7 @@ from uuid import uuid4
 import numpy as np
 import pandas as pd
 
+from app.inference.recommendation_contract import recommendation_deduplication
 from app.pipelines.lucky6_bigtiger.build_features import Lucky6FeatureRecord, Lucky6FeatureResult, STATIC_GLOBAL_FEATURES
 
 if TYPE_CHECKING:
@@ -282,44 +283,151 @@ def _prediction_payload(
 ) -> dict[str, Any]:
     lucky6adv = round(float(scores["lucky6"]), 8)
     big_tiger_adv = round(float(scores["big_tiger"]), 8)
+    score = max(lucky6adv, big_tiger_adv)
+    created_ts = pd.Timestamp(created_at)
+    if created_ts.tzinfo is None:
+        created_ts = created_ts.tz_localize("UTC")
+    time_to_live = (created_ts + pd.Timedelta(minutes=15)).isoformat()
+    confidence = "unknown"
+    severity = "high" if score > 0.05 else "medium" if score > 0 else "low"
+
+    recommendations = []
+    for recommendation_id, (side_bet, advantage, metric) in enumerate(
+        (
+            ("lucky6", lucky6adv, "payload.result.lucky6adv"),
+            ("big_tiger", big_tiger_adv, "payload.result.bigTigeradv"),
+        ),
+        start=1,
+    ):
+        action = {
+            "type": "review_side_bet_advantage",
+            "game_type": "baccarat",
+            "side_bet": side_bet,
+        }
+        label = "Lucky 6" if side_bet == "lucky6" else "Big Tiger"
+        recommendations.append(
+            {
+                "id": recommendation_id,
+                "action": action,
+                "text": f"Review the {label} advantage for Shoe {record.shoe_id}.",
+                "rationale": (
+                    f"The model estimates the {label} advantage at {advantage:.6f} EV per unit wager "
+                    f"with {record.cards_remaining} cards remaining."
+                ),
+                "modeled_impact": {
+                    "value": advantage,
+                    "unit": "EV per unit wager",
+                },
+                "roi": {
+                    "value": advantage,
+                    "unit": "EV per unit wager",
+                },
+                "time_to_action": {
+                    "unit": "Minutes",
+                    "value": 0,
+                },
+                "confidence": confidence,
+                "time_to_live": time_to_live,
+                "thresholds": [
+                    {
+                        "metric": metric,
+                        "operator": ">",
+                        "value": 0,
+                    }
+                ],
+                "deduplication": recommendation_deduplication(
+                    policy_id="same-shoe-action-while-active-v1",
+                    entity_type="SHOE",
+                    action_fields=action.keys(),
+                ),
+            }
+        )
+
+    entities = [
+        {
+            "type": "SHOE",
+            "id": str(record.shoe_id),
+            "present_in_user_interface": True,
+        },
+        {
+            "type": "GAME",
+            "id": str(record.game_id),
+            "present_in_user_interface": False,
+        },
+    ]
+    if record.table_id:
+        entities.append(
+            {
+                "type": "TABLE",
+                "id": str(record.table_id),
+                "present_in_user_interface": True,
+            }
+        )
+
     return {
-        "insights_id": f"l6bt_{uuid4().hex[:17]}",
-        "model_name": context.model_name,
-        "run_id": context.run_id,
-        "model_set": model_set,
-        "created_at": created_at,
-        "event_ts": _timestamp_to_json(record.event_ts),
-        "game_start_ts": _timestamp_to_json(record.game_start_ts),
-        "gaming_day": record.gaming_day or None,
-        "hand_id": record.hand_id,
-        "shoe_id": record.shoe_id,
-        "game_id": record.game_id,
-        "table_id": record.table_id or None,
-        "table_name": record.table_name or None,
-        "pit_name": record.pit_name or None,
-        "gaming_area": record.gaming_area or None,
-        "lucky6adv": lucky6adv,
-        "bigTigeradv": big_tiger_adv,
-        "score_status": "scored",
-        "cards_remaining": record.cards_remaining,
-        "decks_remaining": record.decks_remaining,
-        "history_size": record.history_size,
+        "insights_id": f"evt_{uuid4().hex[:17].upper()}",
+        "occurred_at": created_ts.isoformat(),
+        "gaming_day": record.gaming_day or created_ts.date().isoformat(),
+        "source": "cortex.models.shoe_advantage",
+        "env": "prod",
+        "version": 1.0,
         "model": {
             "type": "ShoeAdvantage",
             "version": str(context.parameters.get("model_version", model_set)),
             "feature_version": str(context.parameters.get("feature_version", "1.0")),
             "run_id": context.run_id,
         },
+        "entity": entities,
+        "severity": severity,
+        "application": ["cortexFloor"],
+        "shoe_id": record.shoe_id,
         "payload": {
             "result": {
+                "decision_class": "side_bet_advantage",
+                "score": score,
+                "confidence": confidence,
+                "modeled_impact": {
+                    "value": score,
+                    "unit": "EV per unit wager",
+                    "horizon_min": 15,
+                },
+                "expected_deficit": None,
                 "lucky6adv": lucky6adv,
                 "bigTigeradv": big_tiger_adv,
+                "cards_remaining": record.cards_remaining,
+                "decks_remaining": record.decks_remaining,
+                "history_size": record.history_size,
+                "model_set": model_set,
+                "event_ts": _timestamp_to_json(record.event_ts),
+                "game_start_ts": _timestamp_to_json(record.game_start_ts),
             },
-            "source": {
-                "table": "t_game",
-                "game_id": record.game_id,
-                "shoe_id": record.shoe_id,
-                "hand_id": record.hand_id,
+            "presentation": {
+                "headline": f"Shoe advantage for Shoe {record.shoe_id}",
+                "trigger_metric": "predicted side-bet advantage",
+                "recommendations": recommendations,
+                "chart": {
+                    "type": "bar",
+                    "y_label": "EV per unit wager",
+                    "x_labels": ["Lucky 6", "Big Tiger"],
+                    "series": [
+                        {
+                            "name": "Predicted",
+                            "points": [lucky6adv, big_tiger_adv],
+                        },
+                        {
+                            "name": "Neutral baseline",
+                            "points": [0, 0],
+                        },
+                    ],
+                },
+            },
+            "actions": {
+                "available": ["review", "export"],
+                "default": "review",
+                "export": {
+                    "formats": ["pdf", "csv"],
+                    "scope": "recommendation",
+                },
             },
         },
     }

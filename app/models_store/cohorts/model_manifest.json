@@ -1,0 +1,61 @@
+{
+  "package": "player_score_cohort_tier_lift",
+  "created_for": "Cohorts deployment",
+  "model_version": "0.1.0",
+  "description": "One deployment package that scores players, assigns behavioral cohorts, and emits cohort tier lift insights.",
+  "artifacts": [
+    {
+      "path": "models/cohort_model.json",
+      "type": "behavioral_kmeans",
+      "purpose": "Assign each player-period row to a behavioral cohort and calculate distance, confidence, and target better-cohort fields."
+    },
+    {
+      "path": "models/cohort_summary.csv",
+      "type": "cohort_reference",
+      "purpose": "Human-readable cohort labels, rank ordering, development score, and median cohort diagnostics."
+    },
+    {
+      "path": "models/recommendation_model_metadata.json",
+      "type": "recommendation_metadata",
+      "purpose": "Defines recommendation model features, categorical fields, targets, and CatBoost artifact paths."
+    },
+    {
+      "path": "models/recommendation_models/engagement_lift.cbm",
+      "type": "catboost_classifier",
+      "purpose": "Predict near-term engagement lift probability."
+    },
+    {
+      "path": "models/recommendation_models/tilt_risk.cbm",
+      "type": "catboost_classifier",
+      "purpose": "Predict elevated chase, volatility, or loss-exit risk."
+    },
+    {
+      "path": "models/recommendation_models/baccarat_engagement.cbm",
+      "type": "catboost_classifier",
+      "purpose": "Predict Baccarat engagement probability."
+    },
+    {
+      "path": "models/recommendation_models/side_bet_engagement.cbm",
+      "type": "catboost_classifier",
+      "purpose": "Predict side-bet or feature engagement probability."
+    },
+    {
+      "path": "models/recommendation_models/limit_path_readiness.cbm",
+      "type": "catboost_classifier",
+      "purpose": "Predict readiness for higher-limit or upper-range pathing."
+    }
+  ],
+  "primary_outputs": [
+    "outputs/player_score_insights_output/player_<player_id>.json",
+    "outputs/cohort_insights_output/player_<player_id>.json",
+    "outputs/cohort_tier_lift_insights_output/player_<player_id>.json"
+  ],
+  "supporting_outputs": [
+    "outputs/cohort_inference_output.csv",
+    "outputs/cohort_inference_output.json",
+    "outputs/recommendation_inference_output.csv",
+    "outputs/recommendation_alerts_output.json",
+    "outputs/recommendation_candidates_output.csv",
+    "outputs/recommendation_candidate_alerts_output.json"
+  ]
+}

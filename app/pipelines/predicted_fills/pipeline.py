@@ -63,7 +63,7 @@ class PredictiveFillsPipeline(Pipeline):
         return feature_result
     
 
-    def write_outputs(self, scored: pd.DataFrame, json_limit: int) -> dict:
+    def write_outputs(self, scored: pd.DataFrame, json_limit: int, context: RunContext) -> list[dict[str, Any]]:
         scored = scored.copy()
         if "route_v2_pred" not in scored.columns:
             scored["route_v2_pred"] = pd.Series(dtype=int)
@@ -93,7 +93,7 @@ class PredictiveFillsPipeline(Pipeline):
             ascending = [True if c != "need_prob" else False for c in action_sort_cols]
             action_queue = action_queue.sort_values(action_sort_cols, ascending=ascending)
 
-        alerts = build_fill_alerts_json(scored, limit=json_limit)
+        alerts = build_fill_alerts_json(scored, limit=json_limit, context=context)
         return alerts
 
     def run_inference(self, features: Any, context: RunContext) -> Any:
@@ -108,7 +108,7 @@ class PredictiveFillsPipeline(Pipeline):
             max_extra_stops_per_route=int(context.parameters["max_extra_stops_per_route"]),
         )
         scored = add_route_v2_recommendations(scored, route_config)
-        alerts = self.write_outputs(scored, context.parameters["json_limit"])
+        alerts = self.write_outputs(scored, context.parameters["json_limit"], context)
         return alerts
     
 
