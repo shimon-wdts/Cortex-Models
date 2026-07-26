@@ -18,13 +18,13 @@ model_registry:
     predicted_fills:
       enabled: true
       parameters:
-        end_ts: 2025-11-04T04:00:00Z # now or ISO timestamp with source data
+        end_ts: 2026-06-26T04:00:00Z # now or ISO timestamp with source data
         json_limit: 3
 
     ShoeAdvantage:
       enabled: true
       parameters:
-        end_ts: 2025-11-04T04:06:00Z # now or ISO timestamp with source data
+        end_ts: 2026-11-04T04:06:00Z # now or ISO timestamp with source data
         start_offset_min: 10
         json_limit: 10
 
@@ -32,8 +32,8 @@ model_registry:
       enabled: true
       parameters:
         source_mode: db
-        gaming_day_start: "2025-10-01"
-        gaming_day_end: "2025-10-21"
+        gaming_day_start: "2026-10-01"
+        gaming_day_end: "2026-10-21"
         limit_games: 2000
         limit_bets: 10000
         json_limit: 25
@@ -42,8 +42,8 @@ model_registry:
       enabled: true
       parameters:
         source_mode: db
-        gaming_day_start: "2025-10-01"
-        gaming_day_end: "2025-10-21"
+        gaming_day_start: "2026-10-01"
+        gaming_day_end: "2026-10-21"
         limit_games: 2000
         limit_bets: 10000
         json_limit: 25
@@ -52,8 +52,8 @@ model_registry:
       enabled: true
       parameters:
         source_mode: db
-        gaming_day_start: "2025-10-01"
-        gaming_day_end: "2025-10-21"
+        gaming_day_start: "2026-10-01"
+        gaming_day_end: "2026-10-21"
         limit_games: 2000
         limit_bets: 10000
         json_limit: 25

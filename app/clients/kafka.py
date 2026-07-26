@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.core.json_utils import sanitize_json
+
+
 class KafkaPredictionPublisher:
     def __init__(
         self,
@@ -45,12 +48,17 @@ class KafkaPredictionPublisher:
                 delivery_errors.append(RuntimeError(str(error)))
 
         for event in events:
-            # payload = event.model_dump(mode="json")
-            key = _event_key(event, key_field)
+            sanitized_event = sanitize_json(event)
+            key = _event_key(sanitized_event, key_field)
             self._producer.produce(
                 topic=topic,
                 key=key,
-                value=json.dumps(event, separators=(",", ":"), sort_keys=True),
+                value=json.dumps(
+                    sanitized_event,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
                 callback=delivery_callback,
             )
             self._producer.poll(0)

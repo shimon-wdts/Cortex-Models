@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.json_utils import sanitize_json
+
 
 class PipelineStep(StrEnum):
     EXTRACT = "extract_data"
@@ -141,3 +143,8 @@ class InsightEvent(BaseModel):
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value
+
+    @field_validator("payload", mode="before")
+    @classmethod
+    def sanitize_payload(cls, value: Any) -> Any:
+        return sanitize_json(value)

@@ -371,30 +371,3 @@ def build_fill_alerts_json(
         alerts.append({k: json_safe_value(v) if not isinstance(v, (list, dict)) else v for k, v in alert.items()})
     return alerts
 
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Score a feature CSV with the packaged saved model.")
-    parser.add_argument("--features", required=True)
-    parser.add_argument("--model-dir", default=str(default_model_dir()))
-    parser.add_argument("--threshold", type=float, default=0.60)
-    parser.add_argument("--json-limit", type=int, default=50)
-    parser.add_argument("--output-dir", default="outputs_pipeline/inference")
-    args = parser.parse_args()
-
-    features = pd.read_csv(Path(args.features), low_memory=False)
-    scored = score_with_saved_model(features, Path(args.model_dir), threshold=args.threshold)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    scored.to_csv(output_dir / "scored_tables_latest.csv", index=False)
-    insight_cols = [c for c in [
-        "snapshot_ts", "table_id", "need_prob", "need_pred", "decision_threshold",
-        "risk_band", "recommended_action", "insight_summary",
-    ] if c in scored.columns]
-    scored[insight_cols].sort_values("need_prob", ascending=False).to_csv(output_dir / "predicted_fill_insights_latest.csv", index=False)
-    (output_dir / "fill_alerts_latest.json").write_text(json.dumps(build_fill_alerts_json(scored, args.json_limit), indent=2), encoding="utf-8")
-    print(f"Scored rows: {len(scored)}")
-    print(f"Wrote: {output_dir}")
-
-
-if __name__ == "__main__":
-    main()
