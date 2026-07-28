@@ -391,7 +391,7 @@ def _prediction_payload(
         },
         "entity": entities,
         "severity": severity,
-        "application": ["cortexFloor"],
+        "application": ["cortexTableGuard"],
         "shoe_id": record.shoe_id,
         "payload": {
             "result": {
