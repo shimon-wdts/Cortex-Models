@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 
 EPS = 1e-6
+ADVANTAGEOUS_LOW_MAX = 0.0244
+ADVANTAGEOUS_MEDIUM_MAX = 0.0588
 
 
 @dataclass
@@ -274,6 +276,16 @@ def score_feature_records(
     return outputs
 
 
+def advantageous_level(score: float) -> str | None:
+    if score <= 0:
+        return None
+    if score <= ADVANTAGEOUS_LOW_MAX:
+        return "l"
+    if score <= ADVANTAGEOUS_MEDIUM_MAX:
+        return "m"
+    return "h"
+
+
 def _prediction_payload(
     record: Lucky6FeatureRecord,
     scores: Mapping[str, float],
@@ -392,6 +404,9 @@ def _prediction_payload(
                     "horizon_min": 15,
                 },
                 "expected_deficit": None,
+                "game_id": record.game_id,
+                "hand_id": record.hand_id,
+                "advantageous_level": advantageous_level(score),
                 "lucky6adv": lucky6adv,
                 "bigTigeradv": big_tiger_adv,
                 "cards_remaining": record.cards_remaining,

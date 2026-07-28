@@ -424,7 +424,7 @@ model_registry:
           time_to_live: 15
 
       kafka:
-        topic: cortex-floor-insights
+        topic: model-service-insights
         key_field: shoe_id
 
     cohort:
