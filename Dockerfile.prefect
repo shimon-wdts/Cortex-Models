@@ -10,6 +10,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}" \
     CORTEX_ENV=uat
 
+RUN apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install locked runtime dependencies before copying the application so that
 # this layer remains cached when only application code changes.
 COPY pyproject.toml uv.lock README.md ./

@@ -24,9 +24,9 @@ model_registry:
     ShoeAdvantage:
       enabled: true
       parameters:
-        end_ts: 2026-11-04T04:06:00Z # now or ISO timestamp with source data
+        end_ts: 2026-06-16T19:54:35.780Z # now or ISO timestamp with source data
+        json_limit: 1
         start_offset_min: 10
-        json_limit: 10
 
     cohort:
       enabled: true
