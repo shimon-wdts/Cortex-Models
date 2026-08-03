@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from app.inference.recommendation_contract import recommendation_deduplication
+from app.inference.recommendation_contract import recommendation_deduplication_id
 
 
 SPEC_VERSION = 1.0
@@ -647,14 +647,6 @@ def recommendation_thresholds(metric: str, value: float) -> list[dict[str, Any]]
     return [{"metric": metric, "operator": ">=", "value": value}]
 
 
-def deduplication(*action_fields: str) -> dict[str, Any]:
-    return recommendation_deduplication(
-        policy_id="same-player-action-while-active-v1",
-        entity_type="Player",
-        action_fields=action_fields,
-    )
-
-
 def build_cohort_insight(row: pd.Series) -> dict[str, Any]:
     player_id = safe_str(row.get("player_id"), "unknown")
     cohort_label = safe_str(row.get("cohort_model_label"), safe_str(row.get("cohort_label"), "Unknown cohort"))
@@ -683,7 +675,14 @@ def build_cohort_insight(row: pd.Series) -> dict[str, Any]:
         "confidence": confidence,
         "time_to_live": ttl_iso(),
         "thresholds": recommendation_thresholds("payload.result.score", 0.2),
-        "deduplication": deduplication("type", "cohort"),
+        "deduplication_id": recommendation_deduplication_id(
+            {
+                "model_type": "PlayerCohort",
+                "player_id": player_id,
+                "action_type": "review_cohort_assignment",
+                "cohort": cohort_label,
+            }
+        ),
     }
     result = {
         "decision_class": "cohort_assignment",
@@ -773,6 +772,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
     )
     primary_text = safe_str(row.get("player_recommendation"), rec_text)
     primary_rationale = safe_str(row.get("recommendation_reason"), rationale)
+    recommendation_target = safe_str(row.get("recommendation_target"), path)
     action_source = safe_str(row.get("recommendation_action"), path).lower()
     shared = shared_model_result(row)
     if "offer" in action_source or "invite" in action_source or "baccarat" in action_source:
@@ -789,7 +789,6 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         "recommended_path": path,
         "target_cohort": target_label,
     }
-    primary_action_fields = ["type", "recommended_path", "target_cohort"]
     if headline == "VIP Baccarat Re-Engagement":
         primary_action.update(
             {
@@ -798,7 +797,6 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
                 "campaign_id": "reactivation-standard",
             }
         )
-        primary_action_fields.extend(["game_type", "segment", "campaign_id"])
 
     recommendation = {
         "id": 1,
@@ -811,7 +809,16 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         "confidence": confidence,
         "time_to_live": ttl_iso(),
         "thresholds": recommendation_thresholds("payload.result.score", 0.8),
-        "deduplication": deduplication(*primary_action_fields),
+        "deduplication_id": recommendation_deduplication_id(
+            {
+                "model_type": "CohortTierLift",
+                "player_id": player_id,
+                "action_type": primary_action_type,
+                "recommended_path": path,
+                "target_cohort": target_label,
+                "recommendation_target": recommendation_target,
+            }
+        ),
     }
     follow_up = {
         "id": 2,
@@ -833,7 +840,17 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         "confidence": confidence,
         "time_to_live": ttl_iso(),
         "thresholds": recommendation_thresholds("payload.result.score", 0.8),
-        "deduplication": deduplication("type", "recommended_path", "target_cohort", "trigger"),
+        "deduplication_id": recommendation_deduplication_id(
+            {
+                "model_type": "CohortTierLift",
+                "player_id": player_id,
+                "action_type": "host_follow_up",
+                "recommended_path": path,
+                "target_cohort": target_label,
+                "recommendation_target": recommendation_target,
+                "trigger": "primary_action_not_redeemed",
+            }
+        ),
     }
     baseline_start = min(path_fit, score_0_100(row.get("cohort_edge_score")) or path_fit)
     baseline_points = [round(min(100.0, baseline_start + i * max(engagement_lift, 1.0) * 0.08), 1) for i in range(5)]
@@ -902,7 +919,14 @@ def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
         "confidence": confidence,
         "time_to_live": ttl_iso(),
         "thresholds": recommendation_thresholds("payload.result.player_score", 55),
-        "deduplication": deduplication("type"),
+        "deduplication_id": recommendation_deduplication_id(
+            {
+                "model_type": "PlayerPerformance",
+                "player_id": player_id,
+                "action_type": "review_player_score",
+                "player_score": f"{score:.1f}",
+            }
+        ),
     }
     result = {
         "decision_class": "player_score",
