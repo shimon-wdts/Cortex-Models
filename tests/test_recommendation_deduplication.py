@@ -12,7 +12,7 @@ from app.pipelines.cohorts.insights_contract import (
     build_tier_lift_insight,
 )
 from app.pipelines.lucky6_bigtiger.build_features import Lucky6FeatureRecord
-from app.pipelines.lucky6_bigtiger.inference import _prediction_payload
+from app.pipelines.lucky6_bigtiger.inference import _prediction_payload, advantageous_level
 from app.pipelines.predicted_fills.inference import build_fill_alerts_json
 
 
@@ -74,7 +74,10 @@ def test_shoe_advantage_uses_game_and_side_bet() -> None:
     assert len(recommendations) == 2
     for recommendation in recommendations:
         assert_sha_only(recommendation)
-        side_bet = recommendation["action"]["side_bet"]
+        action = recommendation["action"]
+        side_bet = action["side_bet"]
+        assert action["game_id"] == "116000235"
+        assert action["shoe_id"] == "1160004"
         assert recommendation["deduplication_id"] == recommendation_deduplication_id(
             {
                 "model_type": "ShoeAdvantage",
@@ -82,7 +85,19 @@ def test_shoe_advantage_uses_game_and_side_bet() -> None:
                 "side_bet": side_bet,
             }
         )
+    assert recommendations[0]["action"]["advantageous_level"] == "l"
+    assert recommendations[1]["action"]["advantageous_level"] is None
     assert recommendations[0]["deduplication_id"] != recommendations[1]["deduplication_id"]
+
+
+def test_shoe_advantage_level_boundaries() -> None:
+    assert advantageous_level(-0.01) is None
+    assert advantageous_level(0.0) is None
+    assert advantageous_level(0.000001) == "l"
+    assert advantageous_level(0.0244) == "l"
+    assert advantageous_level(0.024401) == "m"
+    assert advantageous_level(0.0588) == "m"
+    assert advantageous_level(0.058801) == "h"
 
 
 def test_predicted_fills_includes_severity_and_transfer_source() -> None:
