@@ -317,6 +317,7 @@ def _prediction_payload(
             "side_bet": side_bet,
             "game_id": str(record.game_id),
             "shoe_id": str(record.shoe_id),
+            "table_id": str(record.table_id),
             "advantageous_level": advantageous_level(advantage),
         }
         label = "Lucky 6" if side_bet == "lucky6" else "Big Tiger"

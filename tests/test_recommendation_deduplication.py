@@ -78,6 +78,7 @@ def test_shoe_advantage_uses_game_and_side_bet() -> None:
         side_bet = action["side_bet"]
         assert action["game_id"] == "116000235"
         assert action["shoe_id"] == "1160004"
+        assert action["table_id"] == "71"
         assert recommendation["deduplication_id"] == recommendation_deduplication_id(
             {
                 "model_type": "ShoeAdvantage",
