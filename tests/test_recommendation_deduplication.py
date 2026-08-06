@@ -179,6 +179,10 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
                 "cohort_model_label": "High Value",
                 "path_fit_score": 0.88,
                 "pred_engagement_lift_prob": 0.74,
+                "total_session_theo": 1000,
+                "avg_theo_delta": 200,
+                "avg_theo_delta_ci_low": 70,
+                "avg_theo_delta_ci_high": 330,
             }
         )
     )
@@ -195,6 +199,11 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
             "recommendation_target": "Higher-limit path",
         }
     )
+    for recommendation in (primary, follow_up):
+        assert recommendation["modeled_impact"]["current_theo"] == 1000
+        assert recommendation["modeled_impact"]["expected_theo"] == 1200
+        assert recommendation["modeled_impact"]["theo_lift"] == 200
+        assert recommendation["modeled_impact"]["range95"] == [70, 330]
 
     assert_sha_only(follow_up)
     assert follow_up["deduplication_id"] == recommendation_deduplication_id(

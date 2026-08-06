@@ -738,10 +738,23 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
     path_fit = score_0_100(raw_path_fit) or 0.0
     engagement_lift_probability = score_probability(row.get("pred_engagement_lift_prob"))
     engagement_lift = score_0_100(row.get("pred_engagement_lift_prob")) or 0.0
-    expected_theo = safe_float(row.get("avg_theo_delta"), 0.0) or 0.0
+    raw_current_theo = row.get("total_session_theo")
+    if not has_value(raw_current_theo):
+        raw_current_theo = row.get("theo")
+    current_theo = round(safe_float(raw_current_theo, 0.0) or 0.0, 2)
+    theo_lift = round(safe_float(row.get("avg_theo_delta"), 0.0) or 0.0, 2)
+    expected_theo = round(current_theo + theo_lift, 2)
+    theo_ci_low = round(safe_float(row.get("avg_theo_delta_ci_low"), theo_lift) or 0.0, 2)
+    theo_ci_high = round(safe_float(row.get("avg_theo_delta_ci_high"), theo_lift) or 0.0, 2)
+    theo_impact = {
+        "current_theo": current_theo,
+        "expected_theo": expected_theo,
+        "theo_lift": theo_lift,
+        "range95": [theo_ci_low, theo_ci_high],
+    }
     expected_deficit = optional_float(row.get("expected_deficit"), 2)
-    impact_value = round(expected_theo, 2) if expected_theo else engagement_lift
-    impact_unit = "EV" if expected_theo else "/100 engagement lift"
+    impact_value = theo_lift if theo_lift else engagement_lift
+    impact_unit = "EV" if theo_lift else "/100 engagement lift"
     baseline_text = "baseline/no-offer comparison is tracked against the historical no-action path"
     confidence = confidence_from_score(path_fit)
     decision_class = "reactivation_opportunity"
@@ -803,7 +816,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         "action": primary_action,
         "text": primary_text,
         "rationale": primary_rationale,
-        "modeled_impact": {"value": impact_value, "unit": impact_unit},
+        "modeled_impact": {"value": impact_value, "unit": impact_unit, **theo_impact},
         "roi": {"value": path_fit, "unit": "/100 path fit"},
         "time_to_action": {"unit": "Minutes", "value": 30},
         "confidence": confidence,
@@ -834,7 +847,11 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         },
         "text": f"Assign host follow-up within 7 days if the {path.lower()} action is not redeemed.",
         "rationale": f"Keeps Player {player_id} aligned to {target_label} if the primary action does not convert.",
-        "modeled_impact": {"value": round(impact_value * 0.85, 2), "unit": impact_unit},
+        "modeled_impact": {
+            "value": round(impact_value * 0.85, 2),
+            "unit": impact_unit,
+            **theo_impact,
+        },
         "roi": {"value": round(path_fit * 0.85, 1), "unit": "/100 path fit"},
         "time_to_action": {"unit": "Minutes", "value": 45},
         "confidence": confidence,
