@@ -21,6 +21,7 @@ def test_all_cohort_models_use_standard_source_tables() -> None:
         assert "FROM t_game" in queries["sessions"]
         assert "FROM t_bet b" in queries["sessions"]
         assert "FROM t_session s" in queries["sessions"]
+        assert model["kafka"]["topic"] == "model-service-insights"
         assert model["parameters"]["gaming_day_start"] == "2026-07-01"
         assert model["parameters"]["gaming_day_end"] == "2026-07-21"
 

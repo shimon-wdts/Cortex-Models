@@ -40,7 +40,7 @@ model_registry:
         scope: recommendation
 
   cohort_kafka: &cohort_kafka
-    topic: cortex-floor-insights
+    topic: model-service-insights
     key_field: player_id
 
   cohort_queries: &cohort_queries
