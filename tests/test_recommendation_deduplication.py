@@ -7,6 +7,7 @@ import pandas as pd
 from app.inference.recommendation_contract import recommendation_deduplication_id
 from app.models.pipeline_contracts import ExecutionMode, RunContext
 from app.pipelines.cohorts.insights_contract import (
+    betting_style,
     build_cohort_insight,
     build_player_score_insight,
     build_tier_lift_insight,
@@ -184,6 +185,9 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
                 "avg_theo_delta_ci_low": 70,
                 "avg_theo_delta_ci_high": 330,
                 "active_days": 3,
+                "primary_game": "BACCARAT",
+                "primary_game_pct": 100,
+                "side_bet_intensity": "High",
             }
         )
     )
@@ -215,6 +219,12 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
         "weeks_to_goal": 4,
         "model_horizon_weeks": 1,
     }
+    assert primary["rationale"] == (
+        "This player strongly prefers Baccarat and frequently uses side bets, but visits about once per week. "
+        "A carefully managed higher-limit option may better match their demonstrated play and support continued "
+        "engagement."
+    )
+    assert event["payload"]["result"]["recommendation"]["reason"] == primary["rationale"]
 
     assert follow_up["modeled_impact"]["current_theo"] == 1000
     assert follow_up["modeled_impact"]["expected_theo"] == 1200
@@ -222,6 +232,10 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
     assert follow_up["modeled_impact"]["range95"] == [70, 330]
     assert follow_up["chart"]["series"][0]["points"] == [0, 50, 100, 150, 200]
     assert follow_up["chart"]["final_range95"] == [70, 330]
+    assert follow_up["rationale"] == (
+        "If the player does not respond to the initial recommendation, a host follow-up may improve engagement "
+        "through a more personal interaction."
+    )
     assert "chart" not in event["payload"]["presentation"]
 
     assert_sha_only(follow_up)
@@ -261,6 +275,67 @@ def test_tier_lift_projection_shortens_for_more_frequent_visits() -> None:
             assert chart["series"][0]["points"][-1] == recommendation["modeled_impact"]["theo_lift"]
 
 
+def test_tier_lift_uses_product_rationale_for_every_path() -> None:
+    expected_fragments = {
+        "Protect momentum after losses": "more measured experience after losses",
+        "Strengthen current cohort position": "more established in Current Cohort",
+        "Invite to higher-limit path": "carefully managed higher-limit option",
+        "Improve table fit and access": "familiar Baccarat table",
+        "Expose to preferred game features": "Highlighting familiar game features",
+        "Develop hidden opportunity": "gradual development plan",
+        "Build confidence and engagement": "gradual, familiar experience",
+        "Increase return rhythm": "timely invitation",
+        "Develop from lowest cohort": "develop toward Target Cohort",
+        "Move toward adjacent better cohort": "behaving similarly to Target Cohort",
+        "Maintain current trajectory": "maintaining the current experience",
+    }
+    for path, expected_fragment in expected_fragments.items():
+        event = build_tier_lift_insight(
+            pd.Series(
+                {
+                    "player_id": "1000214",
+                    "recommended_path": path,
+                    "recommendation_action": path,
+                    "cohort_model_label": "Current Cohort",
+                    "target_better_cohort_label": "Target Cohort",
+                    "path_fit_score": 0.8,
+                    "primary_game": "BACCARAT",
+                    "primary_game_pct": 100,
+                    "side_bet_intensity": "High",
+                    "active_days": 1,
+                }
+            )
+        )
+        primary, follow_up = event["payload"]["presentation"]["recommendations"]
+        assert primary["rationale"].startswith(
+            "This player strongly prefers Baccarat and frequently uses side bets, but visits infrequently."
+        )
+        assert expected_fragment in primary["rationale"]
+        assert event["payload"]["result"]["recommendation"]["reason"] == primary["rationale"]
+        assert follow_up["rationale"] == (
+            "If the player does not respond to the initial recommendation, a host follow-up may improve engagement "
+            "through a more personal interaction."
+        )
+
+
+def test_tier_lift_unknown_path_uses_safe_rationale_fallback() -> None:
+    event = build_tier_lift_insight(
+        pd.Series(
+            {
+                "player_id": "1000214",
+                "recommended_path": "Future recommendation path",
+                "path_fit_score": 0.8,
+                "active_days": 3,
+            }
+        )
+    )
+    rationale = event["payload"]["presentation"]["recommendations"][0]["rationale"]
+    assert rationale == (
+        "This player visits about once per week. This recommendation follows the player's demonstrated preferences "
+        "and is intended to improve engagement gradually."
+    )
+
+
 def test_player_performance_includes_displayed_score() -> None:
     event = build_player_score_insight(
         pd.Series(
@@ -285,3 +360,34 @@ def test_player_performance_includes_displayed_score() -> None:
             "player_score": "73.4",
         }
     )
+
+
+def test_betting_style_uses_product_taxonomy() -> None:
+    expected_labels = {
+        "Balanced": "Stable",
+        "Engaged": "Progressive",
+        "Side Bet Heavy": "Side-Bet Heavy",
+        "High Volatility": "Volatile",
+        "Chases Losses": "Risk Wagerer",
+    }
+    for primary_behavior, expected_label in expected_labels.items():
+        style = betting_style(
+            pd.Series(
+                {
+                    "primary_behavior": primary_behavior,
+                    "primary_game": "BACCARAT",
+                    "avg_bet": 125.5,
+                    "side_bet_intensity": "Medium",
+                    "risk_volatility_label": "Medium Risk",
+                    "pred_limit_path_readiness_prob": 0.45,
+                }
+            )
+        )
+        assert style == {
+            "label": expected_label,
+            "primary_game": "BACCARAT",
+            "avg_bet": 125.5,
+            "side_bet_intensity": "Medium",
+            "risk_volatility": "Medium Risk",
+            "limit_readiness_score": 45.0,
+        }
