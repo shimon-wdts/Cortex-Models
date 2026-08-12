@@ -839,13 +839,6 @@ def tier_lift_growth_pct(row: pd.Series) -> float | None:
     return round((theo_lift / current_theo) * 100.0, 4)
 
 
-def tier_lift_is_eligible(row: pd.Series, minimum_growth_pct: float = MIN_TIER_LIFT_GROWTH_PCT) -> bool:
-    current_theo, _, theo_lift, _ = _tier_theo_values(row)
-    if current_theo <= 0:
-        return False
-    return (theo_lift / current_theo) * 100.0 >= minimum_growth_pct
-
-
 def _join_product_phrases(phrases: list[str]) -> str:
     if not phrases:
         return "shows a consistent recent pattern"
@@ -1298,7 +1291,6 @@ def write_canonical_insight_outputs(output_dir: Path) -> dict[str, Any]:
     recs = read_rows(output_dir, "player_recommendations.csv", "recommendation_inference_output.csv")
     if recs is not None:
         recs = merge_path_lift(recs, output_dir)
-        recs = recs[recs.apply(tier_lift_is_eligible, axis=1)].copy()
         written = write_player_insight_files(
             output_dir=output_dir,
             folder_name="cohort_tier_lift_insights_output",

@@ -11,7 +11,6 @@ from app.pipelines.cohorts.insights_contract import (
     build_cohort_insight,
     build_player_score_insight,
     build_tier_lift_insight,
-    tier_lift_is_eligible,
 )
 from app.pipelines.lucky6_bigtiger.build_features import Lucky6FeatureRecord
 from app.pipelines.lucky6_bigtiger.inference import _prediction_payload, advantageous_level
@@ -322,11 +321,27 @@ def test_tier_lift_time_to_action_uses_visit_frequency() -> None:
         assert follow_up["time_to_action"] == {"unit": "Days", "value": follow_up_days}
 
 
-def test_tier_lift_requires_at_least_five_percent_theo_growth() -> None:
-    assert tier_lift_is_eligible(pd.Series({"total_session_theo": 1000, "avg_theo_delta": 50}))
-    assert tier_lift_is_eligible(pd.Series({"total_session_theo": 1000, "avg_theo_delta": 49.99})) is False
-    assert tier_lift_is_eligible(pd.Series({"total_session_theo": 0, "avg_theo_delta": 200})) is False
-    assert tier_lift_is_eligible(pd.Series({"total_session_theo": 1000, "avg_theo_delta": -100})) is False
+def test_tier_lift_exposes_five_percent_threshold_without_suppressing_output() -> None:
+    event = build_tier_lift_insight(
+        pd.Series(
+            {
+                "player_id": "zero-theo-player",
+                "path_fit_score": 0.8,
+                "total_session_theo": 0,
+                "avg_theo_delta": 0,
+                "active_days": 3,
+            }
+        )
+    )
+    primary = event["payload"]["presentation"]["recommendations"][0]
+    assert primary["modeled_impact"]["theo_growth_pct"] is None
+    assert primary["thresholds"] == [
+        {
+            "metric": "payload.result.modeled_impact.theo_growth_pct",
+            "operator": ">=",
+            "value": 5.0,
+        }
+    ]
 
 
 def test_tier_lift_subtitle_handles_same_cohort() -> None:
