@@ -18,6 +18,7 @@ def test_all_cohort_models_use_standard_source_tables() -> None:
         assert "FROM t_game" in queries["games"]
         assert "FROM t_game" in queries["bets"]
         assert "FROM t_bet b" in queries["bets"]
+        assert 'b.theo_win AS "BetTheoWin"' in queries["bets"]
         assert "FROM t_game" in queries["sessions"]
         assert "FROM t_bet b" in queries["sessions"]
         assert "FROM t_session s" in queries["sessions"]

@@ -109,6 +109,7 @@ def prepare_bets_df(bet: pd.DataFrame, games: pd.DataFrame, sessions: pd.DataFra
     bet["GameId"] = pd.to_numeric(bet["GameId"], errors="coerce")
     bet["Wager"] = pd.to_numeric(bet["Wager"], errors="coerce").fillna(0.0)
     bet["CasinoWin"] = pd.to_numeric(bet["CasinoWin"], errors="coerce").fillna(0.0)
+    bet["BetTheoWin"] = pd.to_numeric(bet["BetTheoWin"], errors="coerce")
     bet["PayoutCompleteDtm"] = pd.to_datetime(bet["PayoutCompleteDtm"], utc=True, errors="coerce")
     bet["BetType"] = bet["BetType"].fillna("").astype(str).str.upper()
     bet["TypeOfBet"] = bet["TypeOfBet"].fillna("").astype(str).str.upper()
@@ -141,5 +142,8 @@ def prepare_bets_df(bet: pd.DataFrame, games: pd.DataFrame, sessions: pd.DataFra
     session_bets = betg.groupby("SessionId")["BetId"].transform("count").replace(0, np.nan)
     share = betg["Wager"] / pd.to_numeric(betg["SessionTurnover"], errors="coerce").replace(0, np.nan)
     share = share.fillna(1.0 / session_bets)
-    betg["TheoWin_row"] = pd.to_numeric(betg["SessionTheoWin"], errors="coerce").fillna(0.0) * share.fillna(0.0)
+    session_allocated_theo = (
+        pd.to_numeric(betg["SessionTheoWin"], errors="coerce").fillna(0.0) * share.fillna(0.0)
+    )
+    betg["TheoWin_row"] = betg["BetTheoWin"].where(betg["BetTheoWin"].notna(), session_allocated_theo)
     return betg

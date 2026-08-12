@@ -95,6 +95,7 @@ model_registry:
           b.short_bet_name_en AS "ShortBetNameEn",
           b.wager AS "Wager",
           b.casino_win AS "CasinoWin",
+          b.theo_win AS "BetTheoWin",
           b.status AS "Status",
           b.payout_complete_dtm AS "PayoutCompleteDtm"
         FROM t_bet b
@@ -108,7 +109,7 @@ model_registry:
         gaming_day_end_exclusive: "{{ gaming_day_end_exclusive }}"
         limit_games: "{{ limit_games }}"
         limit_bets: "{{ limit_bets }}"
-      df_columns: ["BetId", "GameId", "SessionId", "PlayerId", "TableId", "BetType", "TypeOfBet", "ShortBetNameEn", "Wager", "CasinoWin", "Status", "PayoutCompleteDtm"]
+      df_columns: ["BetId", "GameId", "SessionId", "PlayerId", "TableId", "BetType", "TypeOfBet", "ShortBetNameEn", "Wager", "CasinoWin", "BetTheoWin", "Status", "PayoutCompleteDtm"]
 
     - name: sessions
       sql: |
