@@ -725,6 +725,55 @@ def _tier_headline(path: str) -> str:
     return "Player Tier Lift Opportunity"
 
 
+def _tier_lift_projection_weeks(visits_per_week: float) -> int:
+    if visits_per_week >= 3.5:
+        return 1
+    if visits_per_week >= 2.5:
+        return 2
+    if visits_per_week >= 1.5:
+        return 3
+    return 4
+
+
+def _tier_lift_chart(
+    row: pd.Series,
+    *,
+    lift: float,
+    unit: str,
+    range95: list[float] | None = None,
+) -> dict[str, Any]:
+    active_days = safe_float(row.get("active_days"), None)
+    frequency_source = "active_days_over_3_weeks"
+    if active_days is None or active_days <= 0:
+        active_days = safe_float(row.get("num_sessions"), None)
+        frequency_source = "sessions_over_3_weeks"
+    if active_days is None or active_days <= 0:
+        active_days = 3.0
+        frequency_source = "default_one_visit_per_week"
+
+    visits_per_week = round(active_days / 3.0, 2)
+    weeks_to_goal = _tier_lift_projection_weeks(visits_per_week)
+    x_labels = ["Now", *[f"Week {week}" for week in range(1, weeks_to_goal + 1)]]
+    points = [round(lift * step / weeks_to_goal, 2) for step in range(weeks_to_goal + 1)]
+    chart = {
+        "type": "line",
+        "y_label": f"Projected lift ({unit})",
+        "x_labels": x_labels,
+        "series": [{"name": "Projected lift", "points": points}],
+        "projection": {
+            "method": "frequency_paced",
+            "strategy": "conservative_timeline",
+            "visits_per_week": visits_per_week,
+            "frequency_source": frequency_source,
+            "weeks_to_goal": weeks_to_goal,
+            "model_horizon_weeks": 1,
+        },
+    }
+    if range95 is not None:
+        chart["final_range95"] = range95
+    return chart
+
+
 def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
     player_id = safe_str(row.get("player_id"), "unknown")
     path = safe_str(row.get("recommended_path"), "Player development path")
@@ -736,7 +785,6 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         raw_path_fit = row.get("recommendation_confidence")
     path_fit_probability = score_probability(raw_path_fit)
     path_fit = score_0_100(raw_path_fit) or 0.0
-    engagement_lift_probability = score_probability(row.get("pred_engagement_lift_prob"))
     engagement_lift = score_0_100(row.get("pred_engagement_lift_prob")) or 0.0
     raw_current_theo = row.get("total_session_theo")
     if not has_value(raw_current_theo):
@@ -869,9 +917,18 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
             }
         ),
     }
-    baseline_start = min(path_fit, score_0_100(row.get("cohort_edge_score")) or path_fit)
-    baseline_points = [round(min(100.0, baseline_start + i * max(engagement_lift, 1.0) * 0.08), 1) for i in range(5)]
-    recommended_points = [round(min(100.0, path_fit + i * max(engagement_lift, 1.0) * 0.12), 1) for i in range(5)]
+    recommendations = [recommendation, follow_up]
+    for recommendation_item in recommendations:
+        recommendation_impact = recommendation_item["modeled_impact"]
+        recommendation_lift = safe_float(recommendation_impact.get("theo_lift"), 0.0) or safe_float(
+            recommendation_impact.get("value"), 0.0
+        )
+        recommendation_item["chart"] = _tier_lift_chart(
+            row,
+            lift=recommendation_lift,
+            unit=safe_str(recommendation_impact.get("unit"), "lift"),
+            range95=recommendation_impact.get("range95") if recommendation_impact.get("theo_lift") else None,
+        )
     result = {
         "decision_class": decision_class,
         "score": path_fit_probability,
@@ -894,16 +951,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         presentation={
             "headline": headline,
             "trigger_metric": "path fit and expected tier lift",
-            "recommendations": [recommendation, follow_up],
-            "chart": {
-                "type": "line",
-                "y_label": "Score",
-                "x_labels": ["Now", "15m", "30m", "45m", "60m"],
-                "series": [
-                    {"name": "Recommended", "points": recommended_points},
-                    {"name": "Baseline", "points": baseline_points},
-                ],
-            },
+            "recommendations": recommendations,
         },
     )
 

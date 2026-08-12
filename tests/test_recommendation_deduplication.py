@@ -183,6 +183,7 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
                 "avg_theo_delta": 200,
                 "avg_theo_delta_ci_low": 70,
                 "avg_theo_delta_ci_high": 330,
+                "active_days": 3,
             }
         )
     )
@@ -199,11 +200,29 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
             "recommendation_target": "Higher-limit path",
         }
     )
-    for recommendation in (primary, follow_up):
-        assert recommendation["modeled_impact"]["current_theo"] == 1000
-        assert recommendation["modeled_impact"]["expected_theo"] == 1200
-        assert recommendation["modeled_impact"]["theo_lift"] == 200
-        assert recommendation["modeled_impact"]["range95"] == [70, 330]
+    assert primary["modeled_impact"]["current_theo"] == 1000
+    assert primary["modeled_impact"]["expected_theo"] == 1200
+    assert primary["modeled_impact"]["theo_lift"] == 200
+    assert primary["modeled_impact"]["range95"] == [70, 330]
+    assert primary["chart"]["x_labels"] == ["Now", "Week 1", "Week 2", "Week 3", "Week 4"]
+    assert primary["chart"]["series"][0]["points"] == [0, 50, 100, 150, 200]
+    assert primary["chart"]["final_range95"] == [70, 330]
+    assert primary["chart"]["projection"] == {
+        "method": "frequency_paced",
+        "strategy": "conservative_timeline",
+        "visits_per_week": 1.0,
+        "frequency_source": "active_days_over_3_weeks",
+        "weeks_to_goal": 4,
+        "model_horizon_weeks": 1,
+    }
+
+    assert follow_up["modeled_impact"]["current_theo"] == 1000
+    assert follow_up["modeled_impact"]["expected_theo"] == 1200
+    assert follow_up["modeled_impact"]["theo_lift"] == 200
+    assert follow_up["modeled_impact"]["range95"] == [70, 330]
+    assert follow_up["chart"]["series"][0]["points"] == [0, 50, 100, 150, 200]
+    assert follow_up["chart"]["final_range95"] == [70, 330]
+    assert "chart" not in event["payload"]["presentation"]
 
     assert_sha_only(follow_up)
     assert follow_up["deduplication_id"] == recommendation_deduplication_id(
@@ -217,6 +236,29 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
             "trigger": "primary_action_not_redeemed",
         }
     )
+
+
+def test_tier_lift_projection_shortens_for_more_frequent_visits() -> None:
+    expected_weeks = {3: 4, 6: 3, 9: 2, 12: 1}
+    for active_days, weeks_to_goal in expected_weeks.items():
+        event = build_tier_lift_insight(
+            pd.Series(
+                {
+                    "player_id": f"player-{active_days}",
+                    "path_fit_score": 0.8,
+                    "pred_engagement_lift_prob": 0.7,
+                    "avg_theo_delta": 200,
+                    "active_days": active_days,
+                }
+            )
+        )
+        recommendations = event["payload"]["presentation"]["recommendations"]
+        for recommendation in recommendations:
+            chart = recommendation["chart"]
+            assert chart["projection"]["visits_per_week"] == active_days / 3
+            assert chart["projection"]["weeks_to_goal"] == weeks_to_goal
+            assert len(chart["x_labels"]) == weeks_to_goal + 1
+            assert chart["series"][0]["points"][-1] == recommendation["modeled_impact"]["theo_lift"]
 
 
 def test_player_performance_includes_displayed_score() -> None:
