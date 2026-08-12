@@ -9,6 +9,7 @@ from typing import Any
 import pandas as pd
 
 from app.inference.recommendation_contract import recommendation_deduplication_id
+from app.pipelines.cohorts.tier_lift_estimation import estimate_personalized_tier_lift
 
 
 SPEC_VERSION = 1.0
@@ -821,15 +822,13 @@ def _tier_visit_frequency(row: pd.Series) -> tuple[float, str]:
 
 
 def _tier_theo_values(row: pd.Series) -> tuple[float, float, float, list[float]]:
-    raw_current_theo = row.get("total_session_theo")
-    if not has_value(raw_current_theo):
-        raw_current_theo = row.get("theo")
-    current_theo = round(safe_float(raw_current_theo, 0.0) or 0.0, 2)
-    theo_lift = round(safe_float(row.get("avg_theo_delta"), 0.0) or 0.0, 2)
-    expected_theo = round(current_theo + theo_lift, 2)
-    theo_ci_low = round(safe_float(row.get("avg_theo_delta_ci_low"), theo_lift) or 0.0, 2)
-    theo_ci_high = round(safe_float(row.get("avg_theo_delta_ci_high"), theo_lift) or 0.0, 2)
-    return current_theo, expected_theo, theo_lift, [theo_ci_low, theo_ci_high]
+    estimate = estimate_personalized_tier_lift(row)
+    return (
+        estimate.current_theo,
+        estimate.expected_theo,
+        estimate.expected_theo_lift,
+        list(estimate.range95),
+    )
 
 
 def tier_lift_growth_pct(row: pd.Series) -> float | None:
@@ -955,26 +954,36 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
     path_fit_probability = score_probability(raw_path_fit)
     path_fit = score_0_100(raw_path_fit) or 0.0
     engagement_lift = score_0_100(row.get("pred_engagement_lift_prob")) or 0.0
-    current_theo, expected_theo, theo_lift, theo_range95 = _tier_theo_values(row)
-    theo_growth_pct = tier_lift_growth_pct(row)
+    lift_estimate = estimate_personalized_tier_lift(row)
+    current_theo = lift_estimate.current_theo
+    expected_theo = lift_estimate.expected_theo
+    theo_lift = lift_estimate.expected_theo_lift
+    theo_range95 = list(lift_estimate.range95)
+    theo_growth_pct = lift_estimate.predicted_growth_pct
     theo_impact = {
         "current_theo": current_theo,
         "expected_theo": expected_theo,
         "theo_lift": theo_lift,
+        "expected_theo_lift": theo_lift,
         "theo_growth_pct": theo_growth_pct,
+        "predicted_growth_pct": theo_growth_pct,
         "range95": theo_range95,
+        "prediction": lift_estimate.diagnostics(),
     }
     follow_up_lift = round(theo_lift * 0.85, 2)
     follow_up_theo_impact = {
         "current_theo": current_theo,
         "expected_theo": round(current_theo + follow_up_lift, 2),
         "theo_lift": follow_up_lift,
+        "expected_theo_lift": follow_up_lift,
         "theo_growth_pct": round((follow_up_lift / current_theo) * 100.0, 2) if current_theo > 0 else None,
+        "predicted_growth_pct": round((follow_up_lift / current_theo) * 100.0, 2) if current_theo > 0 else None,
         "range95": [round(value * 0.85, 2) for value in theo_range95],
+        "prediction": {**lift_estimate.diagnostics(), "follow_up_discount_factor": 0.85},
     }
     expected_deficit = optional_float(row.get("expected_deficit"), 2)
     impact_value = theo_lift
-    impact_unit = "EV"
+    impact_unit = "AWT"
     confidence = confidence_from_score(path_fit)
     decision_class = "reactivation_opportunity"
     visits_per_week, _ = _tier_visit_frequency(row)
@@ -1209,6 +1218,11 @@ def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
 
 
 def merge_path_lift(recommendations: pd.DataFrame, output_dir: Path) -> pd.DataFrame:
+    """Merge legacy validation columns retained for compatibility.
+
+    Tier-lift JSON is estimated per player by ``estimate_personalized_tier_lift``;
+    these path-level columns no longer drive modeled-impact values.
+    """
     validation_path = output_dir / "validation" / "expected_lift_by_recommendation_path.csv"
     if not validation_path.exists() or "recommended_path" not in recommendations.columns:
         return recommendations

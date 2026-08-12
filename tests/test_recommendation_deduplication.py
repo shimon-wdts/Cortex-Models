@@ -181,10 +181,8 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
                 "path_fit_score": 0.88,
                 "pred_engagement_lift_prob": 0.74,
                 "total_session_theo": 1000,
-                "avg_theo_delta": 200,
-                "avg_theo_delta_ci_low": 70,
-                "avg_theo_delta_ci_high": 330,
                 "active_days": 3,
+                "last_gaming_day": "2026-07-21",
                 "primary_game": "BACCARAT",
                 "primary_game_pct": 100,
                 "side_bet_intensity": "High",
@@ -204,18 +202,35 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
             "recommendation_target": "Higher-limit path",
         }
     )
-    assert primary["modeled_impact"]["current_theo"] == 1000
-    assert primary["modeled_impact"]["expected_theo"] == 1200
-    assert primary["modeled_impact"]["theo_lift"] == 200
-    assert primary["modeled_impact"]["theo_growth_pct"] == 20
-    assert primary["modeled_impact"]["range95"] == [70, 330]
+    assert primary["modeled_impact"]["current_theo"] == 333.33
+    assert primary["modeled_impact"]["expected_theo"] == 575.59
+    assert primary["modeled_impact"]["theo_lift"] == 242.26
+    assert primary["modeled_impact"]["expected_theo_lift"] == 242.26
+    assert primary["modeled_impact"]["theo_growth_pct"] == 72.6773
+    assert primary["modeled_impact"]["predicted_growth_pct"] == 72.6773
+    assert primary["modeled_impact"]["range95"] == [143.56, 363.51]
+    assert primary["modeled_impact"]["prediction"] == {
+        "method": "historical_behavior_frequency_recency_v1",
+        "historical_behavior_change": "Invite to higher-limit path",
+        "historical_median_awt_growth_pct": 94.2,
+        "historical_median_adt_growth_pct": 17.1,
+        "historical_players": 133,
+        "visits_per_week": 1.0,
+        "frequency_factor": 0.75,
+        "recency_days": 0,
+        "recency_factor": 1.0,
+        "path_fit_factor": 0.97,
+        "outcome_definition": "weekly Theo (AWT)",
+        "historical_window": "Crowne 2025-10 through 2025-11",
+        "range95_method": "scaled bootstrap CI95 for historical median AWT growth",
+    }
     assert primary["chart"]["x_labels"] == ["Now", "Week 1", "Week 2", "Week 3", "Week 4"]
     assert primary["chart"]["series"] == [
-        {"name": "Recommended", "points": [1000, 1050, 1100, 1150, 1200]},
-        {"name": "Baseline (No action)", "points": [1000, 1000, 1000, 1000, 1000]},
+        {"name": "Recommended", "points": [333.33, 393.89, 454.46, 515.02, 575.59]},
+        {"name": "Baseline (No action)", "points": [333.33, 333.33, 333.33, 333.33, 333.33]},
     ]
     assert primary["chart"]["note"] == "Baseline assumes current Theo remains unchanged if no recommendation is taken."
-    assert primary["chart"]["final_range95"] == [70, 330]
+    assert primary["chart"]["final_range95"] == [143.56, 363.51]
     assert primary["chart"]["projection"] == {
         "method": "frequency_paced",
         "strategy": "conservative_timeline",
@@ -240,16 +255,16 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
     )
     assert event["payload"]["result"]["recommendation"]["reason"] == primary["rationale"]
 
-    assert follow_up["modeled_impact"]["current_theo"] == 1000
-    assert follow_up["modeled_impact"]["expected_theo"] == 1170
-    assert follow_up["modeled_impact"]["theo_lift"] == 170
-    assert follow_up["modeled_impact"]["theo_growth_pct"] == 17
-    assert follow_up["modeled_impact"]["range95"] == [59.5, 280.5]
+    assert follow_up["modeled_impact"]["current_theo"] == 333.33
+    assert follow_up["modeled_impact"]["expected_theo"] == 539.25
+    assert follow_up["modeled_impact"]["theo_lift"] == 205.92
+    assert follow_up["modeled_impact"]["theo_growth_pct"] == 61.78
+    assert follow_up["modeled_impact"]["range95"] == [122.03, 308.98]
     assert follow_up["chart"]["series"] == [
-        {"name": "Recommended", "points": [1000, 1042.5, 1085, 1127.5, 1170]},
-        {"name": "Baseline (No action)", "points": [1000, 1000, 1000, 1000, 1000]},
+        {"name": "Recommended", "points": [333.33, 384.81, 436.29, 487.77, 539.25]},
+        {"name": "Baseline (No action)", "points": [333.33, 333.33, 333.33, 333.33, 333.33]},
     ]
-    assert follow_up["chart"]["final_range95"] == [59.5, 280.5]
+    assert follow_up["chart"]["final_range95"] == [122.03, 308.98]
     assert follow_up["time_to_action"] == {"unit": "Days", "value": 21}
     assert follow_up["rationale"] == (
         "If the player does not respond to the initial recommendation, a host follow-up may improve engagement "
@@ -257,7 +272,7 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
     )
     assert "chart" not in event["payload"]["presentation"]
     assert event["payload"]["presentation"]["subtitle"] == "This player shows strong potential to move toward VIP."
-    assert event["payload"]["result"]["modeled_impact"]["theo_growth_pct"] == 20
+    assert event["payload"]["result"]["modeled_impact"]["theo_growth_pct"] == 72.6773
 
     assert_sha_only(follow_up)
     assert follow_up["deduplication_id"] == recommendation_deduplication_id(
@@ -295,7 +310,7 @@ def test_tier_lift_projection_shortens_for_more_frequent_visits() -> None:
             assert chart["projection"]["weeks_to_goal"] == weeks_to_goal
             assert len(chart["x_labels"]) == weeks_to_goal + 1
             assert chart["series"][0]["points"][-1] == recommendation["modeled_impact"]["expected_theo"]
-            assert chart["series"][1]["points"] == [1000] * (weeks_to_goal + 1)
+            assert chart["series"][1]["points"] == [333.33] * (weeks_to_goal + 1)
 
 
 def test_tier_lift_time_to_action_uses_visit_frequency() -> None:

@@ -88,10 +88,11 @@ def test_bet_theo_backfills_zero_session_theo() -> None:
     event = build_tier_lift_insight(tier_row)
 
     impact = event["payload"]["result"]["modeled_impact"]
-    assert impact["current_theo"] == 8.5
-    assert impact["expected_theo"] == 8.5
-    assert impact["theo_lift"] == 0
+    assert impact["current_theo"] == 2.83
+    assert impact["expected_theo"] == 3.0
+    assert impact["theo_lift"] == 0.17
+    assert impact["predicted_growth_pct"] == 5.8568
     for recommendation in event["payload"]["presentation"]["recommendations"]:
-        assert recommendation["modeled_impact"]["current_theo"] == 8.5
+        assert recommendation["modeled_impact"]["current_theo"] == 2.83
         baseline = next(series for series in recommendation["chart"]["series"] if series["name"] == "Baseline (No action)")
-        assert baseline["points"] == [8.5] * len(recommendation["chart"]["x_labels"])
+        assert baseline["points"] == [2.83] * len(recommendation["chart"]["x_labels"])
