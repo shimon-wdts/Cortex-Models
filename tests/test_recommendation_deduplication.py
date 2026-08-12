@@ -11,6 +11,7 @@ from app.pipelines.cohorts.insights_contract import (
     build_cohort_insight,
     build_player_score_insight,
     build_tier_lift_insight,
+    tier_lift_is_eligible,
 )
 from app.pipelines.lucky6_bigtiger.build_features import Lucky6FeatureRecord
 from app.pipelines.lucky6_bigtiger.inference import _prediction_payload, advantageous_level
@@ -207,18 +208,32 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
     assert primary["modeled_impact"]["current_theo"] == 1000
     assert primary["modeled_impact"]["expected_theo"] == 1200
     assert primary["modeled_impact"]["theo_lift"] == 200
+    assert primary["modeled_impact"]["theo_growth_pct"] == 20
     assert primary["modeled_impact"]["range95"] == [70, 330]
     assert primary["chart"]["x_labels"] == ["Now", "Week 1", "Week 2", "Week 3", "Week 4"]
-    assert primary["chart"]["series"][0]["points"] == [0, 50, 100, 150, 200]
+    assert primary["chart"]["series"] == [
+        {"name": "Recommended", "points": [1000, 1050, 1100, 1150, 1200]},
+        {"name": "Baseline (No action)", "points": [1000, 1000, 1000, 1000, 1000]},
+    ]
+    assert primary["chart"]["note"] == "Baseline assumes current Theo remains unchanged if no recommendation is taken."
     assert primary["chart"]["final_range95"] == [70, 330]
     assert primary["chart"]["projection"] == {
         "method": "frequency_paced",
         "strategy": "conservative_timeline",
+        "baseline_method": "current_theo_flat",
         "visits_per_week": 1.0,
         "frequency_source": "active_days_over_3_weeks",
         "weeks_to_goal": 4,
         "model_horizon_weeks": 1,
     }
+    assert primary["time_to_action"] == {"unit": "Days", "value": 14}
+    assert primary["thresholds"] == [
+        {
+            "metric": "payload.result.modeled_impact.theo_growth_pct",
+            "operator": ">=",
+            "value": 5.0,
+        }
+    ]
     assert primary["rationale"] == (
         "This player strongly prefers Baccarat and frequently uses side bets, but visits about once per week. "
         "A carefully managed higher-limit option may better match their demonstrated play and support continued "
@@ -227,16 +242,23 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
     assert event["payload"]["result"]["recommendation"]["reason"] == primary["rationale"]
 
     assert follow_up["modeled_impact"]["current_theo"] == 1000
-    assert follow_up["modeled_impact"]["expected_theo"] == 1200
-    assert follow_up["modeled_impact"]["theo_lift"] == 200
-    assert follow_up["modeled_impact"]["range95"] == [70, 330]
-    assert follow_up["chart"]["series"][0]["points"] == [0, 50, 100, 150, 200]
-    assert follow_up["chart"]["final_range95"] == [70, 330]
+    assert follow_up["modeled_impact"]["expected_theo"] == 1170
+    assert follow_up["modeled_impact"]["theo_lift"] == 170
+    assert follow_up["modeled_impact"]["theo_growth_pct"] == 17
+    assert follow_up["modeled_impact"]["range95"] == [59.5, 280.5]
+    assert follow_up["chart"]["series"] == [
+        {"name": "Recommended", "points": [1000, 1042.5, 1085, 1127.5, 1170]},
+        {"name": "Baseline (No action)", "points": [1000, 1000, 1000, 1000, 1000]},
+    ]
+    assert follow_up["chart"]["final_range95"] == [59.5, 280.5]
+    assert follow_up["time_to_action"] == {"unit": "Days", "value": 21}
     assert follow_up["rationale"] == (
         "If the player does not respond to the initial recommendation, a host follow-up may improve engagement "
         "through a more personal interaction."
     )
     assert "chart" not in event["payload"]["presentation"]
+    assert event["payload"]["presentation"]["subtitle"] == "This player shows strong potential to move toward VIP."
+    assert event["payload"]["result"]["modeled_impact"]["theo_growth_pct"] == 20
 
     assert_sha_only(follow_up)
     assert follow_up["deduplication_id"] == recommendation_deduplication_id(
@@ -261,6 +283,7 @@ def test_tier_lift_projection_shortens_for_more_frequent_visits() -> None:
                     "player_id": f"player-{active_days}",
                     "path_fit_score": 0.8,
                     "pred_engagement_lift_prob": 0.7,
+                    "total_session_theo": 1000,
                     "avg_theo_delta": 200,
                     "active_days": active_days,
                 }
@@ -272,7 +295,57 @@ def test_tier_lift_projection_shortens_for_more_frequent_visits() -> None:
             assert chart["projection"]["visits_per_week"] == active_days / 3
             assert chart["projection"]["weeks_to_goal"] == weeks_to_goal
             assert len(chart["x_labels"]) == weeks_to_goal + 1
-            assert chart["series"][0]["points"][-1] == recommendation["modeled_impact"]["theo_lift"]
+            assert chart["series"][0]["points"][-1] == recommendation["modeled_impact"]["expected_theo"]
+            assert chart["series"][1]["points"] == [1000] * (weeks_to_goal + 1)
+
+
+def test_tier_lift_time_to_action_uses_visit_frequency() -> None:
+    expected_days = {
+        1: (21, 21),
+        3: (14, 21),
+        9: (7, 14),
+    }
+    for active_days, (primary_days, follow_up_days) in expected_days.items():
+        event = build_tier_lift_insight(
+            pd.Series(
+                {
+                    "player_id": f"player-{active_days}",
+                    "path_fit_score": 0.8,
+                    "total_session_theo": 1000,
+                    "avg_theo_delta": 200,
+                    "active_days": active_days,
+                }
+            )
+        )
+        primary, follow_up = event["payload"]["presentation"]["recommendations"]
+        assert primary["time_to_action"] == {"unit": "Days", "value": primary_days}
+        assert follow_up["time_to_action"] == {"unit": "Days", "value": follow_up_days}
+
+
+def test_tier_lift_requires_at_least_five_percent_theo_growth() -> None:
+    assert tier_lift_is_eligible(pd.Series({"total_session_theo": 1000, "avg_theo_delta": 50}))
+    assert tier_lift_is_eligible(pd.Series({"total_session_theo": 1000, "avg_theo_delta": 49.99})) is False
+    assert tier_lift_is_eligible(pd.Series({"total_session_theo": 0, "avg_theo_delta": 200})) is False
+    assert tier_lift_is_eligible(pd.Series({"total_session_theo": 1000, "avg_theo_delta": -100})) is False
+
+
+def test_tier_lift_subtitle_handles_same_cohort() -> None:
+    event = build_tier_lift_insight(
+        pd.Series(
+            {
+                "player_id": "1000214",
+                "cohort_model_label": "High Value",
+                "target_better_cohort_label": "High Value",
+                "path_fit_score": 0.8,
+                "total_session_theo": 1000,
+                "avg_theo_delta": 200,
+                "active_days": 3,
+            }
+        )
+    )
+    assert event["payload"]["presentation"]["subtitle"] == (
+        "This player shows strong potential to strengthen their position within High Value."
+    )
 
 
 def test_tier_lift_uses_product_rationale_for_every_path() -> None:

@@ -14,6 +14,7 @@ from app.pipelines.cohorts.insights_contract import (
     build_player_score_insight,
     build_tier_lift_insight,
     merge_path_lift,
+    tier_lift_is_eligible,
     total_period_rows,
 )
 from app.pipelines.cohorts.recommendation_inference import infer_recommendations
@@ -93,6 +94,7 @@ class CohortsPipeline(Pipeline):
         if self.output_kind == "cohort_tier_lift":
             rows = total_period_rows(pd.read_csv(output_dir / "player_recommendations.csv", low_memory=False))
             rows = merge_path_lift(rows, output_dir)
+            rows = rows[rows.apply(tier_lift_is_eligible, axis=1)].copy()
             return [_with_player_key(build_tier_lift_insight(row)) for _, row in rows.iterrows()]
 
         if self.output_kind == "playerscore":

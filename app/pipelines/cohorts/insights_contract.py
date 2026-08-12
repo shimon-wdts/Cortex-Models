@@ -21,6 +21,7 @@ SOURCE_BY_MODEL = {
 ENV = "prod"
 MODEL_VERSION = "10.2.0"
 APPLICATIONS = ["cortexFloor"]
+MIN_TIER_LIFT_GROWTH_PCT = 5.0
 PLAYER_SCORE_WEIGHTS = {
     "worth": 0.35,
     "deal_hold": 0.35,
@@ -799,6 +800,14 @@ def _tier_lift_projection_weeks(visits_per_week: float) -> int:
     return 4
 
 
+def _tier_time_to_action_days(visits_per_week: float) -> int:
+    if visits_per_week >= 2.5:
+        return 7
+    if visits_per_week >= 0.75:
+        return 14
+    return 21
+
+
 def _tier_visit_frequency(row: pd.Series) -> tuple[float, str]:
     active_days = safe_float(row.get("active_days"), None)
     frequency_source = "active_days_over_3_weeks"
@@ -809,6 +818,32 @@ def _tier_visit_frequency(row: pd.Series) -> tuple[float, str]:
         active_days = 3.0
         frequency_source = "default_one_visit_per_week"
     return round(active_days / 3.0, 2), frequency_source
+
+
+def _tier_theo_values(row: pd.Series) -> tuple[float, float, float, list[float]]:
+    raw_current_theo = row.get("total_session_theo")
+    if not has_value(raw_current_theo):
+        raw_current_theo = row.get("theo")
+    current_theo = round(safe_float(raw_current_theo, 0.0) or 0.0, 2)
+    theo_lift = round(safe_float(row.get("avg_theo_delta"), 0.0) or 0.0, 2)
+    expected_theo = round(current_theo + theo_lift, 2)
+    theo_ci_low = round(safe_float(row.get("avg_theo_delta_ci_low"), theo_lift) or 0.0, 2)
+    theo_ci_high = round(safe_float(row.get("avg_theo_delta_ci_high"), theo_lift) or 0.0, 2)
+    return current_theo, expected_theo, theo_lift, [theo_ci_low, theo_ci_high]
+
+
+def tier_lift_growth_pct(row: pd.Series) -> float | None:
+    current_theo, _, theo_lift, _ = _tier_theo_values(row)
+    if current_theo <= 0:
+        return None
+    return round((theo_lift / current_theo) * 100.0, 4)
+
+
+def tier_lift_is_eligible(row: pd.Series, minimum_growth_pct: float = MIN_TIER_LIFT_GROWTH_PCT) -> bool:
+    current_theo, _, theo_lift, _ = _tier_theo_values(row)
+    if current_theo <= 0:
+        return False
+    return (theo_lift / current_theo) * 100.0 >= minimum_growth_pct
 
 
 def _join_product_phrases(phrases: list[str]) -> str:
@@ -872,9 +907,16 @@ def _tier_product_rationale(
     )
 
 
+def _tier_subtitle(cohort_label: str, target_label: str) -> str:
+    if target_label and target_label.lower() not in {"target cohort", cohort_label.lower()}:
+        return f"This player shows strong potential to move toward {target_label}."
+    return f"This player shows strong potential to strengthen their position within {cohort_label}."
+
+
 def _tier_lift_chart(
     row: pd.Series,
     *,
+    current_theo: float,
     lift: float,
     unit: str,
     range95: list[float] | None = None,
@@ -882,15 +924,21 @@ def _tier_lift_chart(
     visits_per_week, frequency_source = _tier_visit_frequency(row)
     weeks_to_goal = _tier_lift_projection_weeks(visits_per_week)
     x_labels = ["Now", *[f"Week {week}" for week in range(1, weeks_to_goal + 1)]]
-    points = [round(lift * step / weeks_to_goal, 2) for step in range(weeks_to_goal + 1)]
+    recommended_points = [round(current_theo + lift * step / weeks_to_goal, 2) for step in range(weeks_to_goal + 1)]
+    baseline_points = [current_theo] * (weeks_to_goal + 1)
     chart = {
         "type": "line",
-        "y_label": f"Projected lift ({unit})",
+        "y_label": f"Projected Theo ({unit})",
         "x_labels": x_labels,
-        "series": [{"name": "Projected lift", "points": points}],
+        "series": [
+            {"name": "Recommended", "points": recommended_points},
+            {"name": "Baseline (No action)", "points": baseline_points},
+        ],
+        "note": "Baseline assumes current Theo remains unchanged if no recommendation is taken.",
         "projection": {
             "method": "frequency_paced",
             "strategy": "conservative_timeline",
+            "baseline_method": "current_theo_flat",
             "visits_per_week": visits_per_week,
             "frequency_source": frequency_source,
             "weeks_to_goal": weeks_to_goal,
@@ -914,42 +962,49 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
     path_fit_probability = score_probability(raw_path_fit)
     path_fit = score_0_100(raw_path_fit) or 0.0
     engagement_lift = score_0_100(row.get("pred_engagement_lift_prob")) or 0.0
-    raw_current_theo = row.get("total_session_theo")
-    if not has_value(raw_current_theo):
-        raw_current_theo = row.get("theo")
-    current_theo = round(safe_float(raw_current_theo, 0.0) or 0.0, 2)
-    theo_lift = round(safe_float(row.get("avg_theo_delta"), 0.0) or 0.0, 2)
-    expected_theo = round(current_theo + theo_lift, 2)
-    theo_ci_low = round(safe_float(row.get("avg_theo_delta_ci_low"), theo_lift) or 0.0, 2)
-    theo_ci_high = round(safe_float(row.get("avg_theo_delta_ci_high"), theo_lift) or 0.0, 2)
+    current_theo, expected_theo, theo_lift, theo_range95 = _tier_theo_values(row)
+    theo_growth_pct = tier_lift_growth_pct(row)
     theo_impact = {
         "current_theo": current_theo,
         "expected_theo": expected_theo,
         "theo_lift": theo_lift,
-        "range95": [theo_ci_low, theo_ci_high],
+        "theo_growth_pct": theo_growth_pct,
+        "range95": theo_range95,
+    }
+    follow_up_lift = round(theo_lift * 0.85, 2)
+    follow_up_theo_impact = {
+        "current_theo": current_theo,
+        "expected_theo": round(current_theo + follow_up_lift, 2),
+        "theo_lift": follow_up_lift,
+        "theo_growth_pct": round((follow_up_lift / current_theo) * 100.0, 2) if current_theo > 0 else None,
+        "range95": [round(value * 0.85, 2) for value in theo_range95],
     }
     expected_deficit = optional_float(row.get("expected_deficit"), 2)
-    impact_value = theo_lift if theo_lift else engagement_lift
-    impact_unit = "EV" if theo_lift else "/100 engagement lift"
+    impact_value = theo_lift
+    impact_unit = "EV"
     confidence = confidence_from_score(path_fit)
     decision_class = "reactivation_opportunity"
+    visits_per_week, _ = _tier_visit_frequency(row)
+    primary_action_days = _tier_time_to_action_days(visits_per_week)
+    follow_up_action_days = min(primary_action_days + 7, 21)
 
     if headline == "VIP Baccarat Re-Engagement":
         rec_text = (
-            f"Invite Player {player_id} within the next 7 days to a Hi-limit Baccarat table like BA0054 or similar. "
+            f"Invite Player {player_id} within the next {primary_action_days} days to a Hi-limit Baccarat table like "
+            "BA0054 or similar. "
             f"Modeled uplift: {engagement_lift:.1f}/100 engagement lift; expected theo value: {expected_theo:.2f}; "
             f"baseline/no-offer comparison: no invite; confidence: {confidence}."
         )
     elif headline == "Session Increase":
         rec_text = (
-            f"Offer Player {player_id} a session-increase path within the next 7 days. "
+            f"Offer Player {player_id} a session-increase path within the next {primary_action_days} days. "
             f"Option 1 should increase visit rhythm; option 2 should protect current play quality. "
             f"Modeled uplift: {engagement_lift:.1f}/100 engagement lift; expected theo value: {expected_theo:.2f}; "
             f"baseline/no-offer comparison: no session action; confidence: {confidence}."
         )
     else:
         rec_text = (
-            f"Move Player {player_id} toward {target_label} within the next 7 days. "
+            f"Move Player {player_id} toward {target_label} within the next {primary_action_days} days. "
             f"Modeled uplift: {engagement_lift:.1f}/100 engagement lift; expected theo value: {expected_theo:.2f}; "
             f"baseline/no-offer comparison: no recommendation; confidence: {confidence}."
         )
@@ -994,10 +1049,12 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         "rationale": primary_rationale,
         "modeled_impact": {"value": impact_value, "unit": impact_unit, **theo_impact},
         "roi": {"value": path_fit, "unit": "/100 path fit"},
-        "time_to_action": {"unit": "Minutes", "value": 30},
+        "time_to_action": {"unit": "Days", "value": primary_action_days},
         "confidence": confidence,
         "time_to_live": ttl_iso(),
-        "thresholds": recommendation_thresholds("payload.result.score", 0.8),
+        "thresholds": recommendation_thresholds(
+            "payload.result.modeled_impact.theo_growth_pct", MIN_TIER_LIFT_GROWTH_PCT
+        ),
         "deduplication_id": recommendation_deduplication_id(
             {
                 "model_type": "CohortTierLift",
@@ -1021,18 +1078,22 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
             "recommendation_id": 1,
             "condition": "not_redeemed",
         },
-        "text": f"Assign host follow-up within 7 days if the {path.lower()} action is not redeemed.",
+        "text": (
+            f"Assign host follow-up within {follow_up_action_days} days if the {path.lower()} action is not redeemed."
+        ),
         "rationale": TIER_LIFT_FOLLOW_UP_RATIONALE,
         "modeled_impact": {
-            "value": round(impact_value * 0.85, 2),
+            "value": follow_up_lift,
             "unit": impact_unit,
-            **theo_impact,
+            **follow_up_theo_impact,
         },
         "roi": {"value": round(path_fit * 0.85, 1), "unit": "/100 path fit"},
-        "time_to_action": {"unit": "Minutes", "value": 45},
+        "time_to_action": {"unit": "Days", "value": follow_up_action_days},
         "confidence": confidence,
         "time_to_live": ttl_iso(),
-        "thresholds": recommendation_thresholds("payload.result.score", 0.8),
+        "thresholds": recommendation_thresholds(
+            "payload.result.modeled_impact.theo_growth_pct", MIN_TIER_LIFT_GROWTH_PCT
+        ),
         "deduplication_id": recommendation_deduplication_id(
             {
                 "model_type": "CohortTierLift",
@@ -1053,6 +1114,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         )
         recommendation_item["chart"] = _tier_lift_chart(
             row,
+            current_theo=safe_float(recommendation_impact.get("current_theo"), 0.0) or 0.0,
             lift=recommendation_lift,
             unit=safe_str(recommendation_impact.get("unit"), "lift"),
             range95=recommendation_impact.get("range95") if recommendation_impact.get("theo_lift") else None,
@@ -1061,7 +1123,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         "decision_class": decision_class,
         "score": path_fit_probability,
         "confidence": confidence,
-        "modeled_impact": {"value": impact_value, "unit": impact_unit, "horizon_min": 10080},
+        "modeled_impact": {"value": impact_value, "unit": impact_unit, "horizon_min": 10080, **theo_impact},
         "expected_deficit": expected_deficit,
         "recommendation": recommendation_result(row, primary_action_type, primary_rationale),
         "cohort": cohort_result(row),
@@ -1078,6 +1140,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         result=result,
         presentation={
             "headline": headline,
+            "subtitle": _tier_subtitle(cohort_label, target_label),
             "trigger_metric": "path fit and expected tier lift",
             "recommendations": recommendations,
         },
@@ -1235,6 +1298,7 @@ def write_canonical_insight_outputs(output_dir: Path) -> dict[str, Any]:
     recs = read_rows(output_dir, "player_recommendations.csv", "recommendation_inference_output.csv")
     if recs is not None:
         recs = merge_path_lift(recs, output_dir)
+        recs = recs[recs.apply(tier_lift_is_eligible, axis=1)].copy()
         written = write_player_insight_files(
             output_dir=output_dir,
             folder_name="cohort_tier_lift_insights_output",
