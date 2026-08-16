@@ -21,4 +21,4 @@ model_registry:
   models:
     ShoeAdvantage:
       schedule:
-        enabled: false    
+        enabled: true
