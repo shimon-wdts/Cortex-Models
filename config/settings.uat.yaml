@@ -18,3 +18,7 @@ model_registry:
     sasl_password: 
     ssl_ca_location: <path>/ca.crt
     ssl_endpoint_identification_algorithm: https
+  models:
+    ShoeAdvantage:
+      schedule:
+        enabled: false    
