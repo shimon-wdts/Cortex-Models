@@ -32,8 +32,8 @@ model_registry:
       enabled: true
       parameters:
         source_mode: db
-        gaming_day_start: "2026-10-01"
-        gaming_day_end: "2026-10-21"
+        gaming_day_start: "2026-07-01"
+        gaming_day_end: "2026-07-21"
         limit_games: 2000
         limit_bets: 10000
         json_limit: 25
@@ -42,8 +42,8 @@ model_registry:
       enabled: true
       parameters:
         source_mode: db
-        gaming_day_start: "2026-10-01"
-        gaming_day_end: "2026-10-21"
+        gaming_day_start: "2026-07-01"
+        gaming_day_end: "2026-07-21"
         limit_games: 2000
         limit_bets: 10000
         json_limit: 25
@@ -52,8 +52,8 @@ model_registry:
       enabled: true
       parameters:
         source_mode: db
-        gaming_day_start: "2026-10-01"
-        gaming_day_end: "2026-10-21"
+        gaming_day_start: "2026-07-01"
+        gaming_day_end: "2026-07-21"
         limit_games: 2000
         limit_bets: 10000
         json_limit: 25

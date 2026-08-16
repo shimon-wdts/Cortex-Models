@@ -40,7 +40,7 @@ model_registry:
         scope: recommendation
 
   cohort_kafka: &cohort_kafka
-    topic: cortex-floor-insights
+    topic: model-service-insights
     key_field: player_id
 
   cohort_queries: &cohort_queries
@@ -61,7 +61,7 @@ model_registry:
           gaming_area AS "GamingArea",
           num_players AS "NumPlayers",
           num_positions AS "NumPositions"
-        FROM "t_game_CrowneFeb26"
+        FROM t_game
         WHERE gaming_day >= :gaming_day_start
           AND gaming_day < :gaming_day_end_exclusive
           AND game_id IS NOT NULL
@@ -77,7 +77,7 @@ model_registry:
       sql: |
         WITH selected_games AS (
           SELECT game_id
-          FROM "t_game_CrowneFeb26"
+          FROM t_game
           WHERE gaming_day >= :gaming_day_start
             AND gaming_day < :gaming_day_end_exclusive
             AND game_id IS NOT NULL
@@ -95,9 +95,10 @@ model_registry:
           b.short_bet_name_en AS "ShortBetNameEn",
           b.wager AS "Wager",
           b.casino_win AS "CasinoWin",
+          b.theo_win AS "BetTheoWin",
           b.status AS "Status",
           b.payout_complete_dtm AS "PayoutCompleteDtm"
-        FROM "t_bet_CrowneFeb26" b
+        FROM t_bet b
         JOIN selected_games g ON g.game_id = b.game_id
         WHERE b.session_id IS NOT NULL
           AND b.player_id IS NOT NULL
@@ -108,13 +109,13 @@ model_registry:
         gaming_day_end_exclusive: "{{ gaming_day_end_exclusive }}"
         limit_games: "{{ limit_games }}"
         limit_bets: "{{ limit_bets }}"
-      df_columns: ["BetId", "GameId", "SessionId", "PlayerId", "TableId", "BetType", "TypeOfBet", "ShortBetNameEn", "Wager", "CasinoWin", "Status", "PayoutCompleteDtm"]
+      df_columns: ["BetId", "GameId", "SessionId", "PlayerId", "TableId", "BetType", "TypeOfBet", "ShortBetNameEn", "Wager", "CasinoWin", "BetTheoWin", "Status", "PayoutCompleteDtm"]
 
     - name: sessions
       sql: |
         WITH selected_games AS (
           SELECT game_id
-          FROM "t_game_CrowneFeb26"
+          FROM t_game
           WHERE gaming_day >= :gaming_day_start
             AND gaming_day < :gaming_day_end_exclusive
             AND game_id IS NOT NULL
@@ -123,7 +124,7 @@ model_registry:
         ),
         selected_bets AS (
           SELECT b.session_id, b.player_id, b.game_id, b.bet_id
-          FROM "t_bet_CrowneFeb26" b
+          FROM t_bet b
           JOIN selected_games g ON g.game_id = b.game_id
           WHERE b.session_id IS NOT NULL
             AND b.player_id IS NOT NULL
@@ -154,7 +155,7 @@ model_registry:
           s.pit_name AS "PitName",
           s.gaming_area AS "GamingArea",
           s.table_name AS "TableName"
-        FROM "t_session_CrowneFeb26" s
+        FROM t_session s
         JOIN selected_sessions ss
           ON ss.session_id = s.session_id
          AND ss.player_id = s.player_id
@@ -437,8 +438,8 @@ model_registry:
       output_schema_version: 1.0
       severity_default: info
       parameters:
-        gaming_day_start: "2025-10-01"
-        gaming_day_end: "2025-10-21"
+        gaming_day_start: "2026-07-01"
+        gaming_day_end: "2026-07-21"
         limit_games: 500
         limit_bets: 5000
         json_limit: 25
@@ -466,8 +467,8 @@ model_registry:
       output_schema_version: 1.0
       severity_default: high
       parameters:
-        gaming_day_start: "2025-10-01"
-        gaming_day_end: "2025-10-21"
+        gaming_day_start: "2026-07-01"
+        gaming_day_end: "2026-07-21"
         limit_games: 500
         limit_bets: 5000
         json_limit: 25
@@ -495,8 +496,8 @@ model_registry:
       output_schema_version: 1.0
       severity_default: medium
       parameters:
-        gaming_day_start: "2025-10-01"
-        gaming_day_end: "2025-10-21"
+        gaming_day_start: "2026-07-01"
+        gaming_day_end: "2026-07-21"
         limit_games: 500
         limit_bets: 5000
         json_limit: 25

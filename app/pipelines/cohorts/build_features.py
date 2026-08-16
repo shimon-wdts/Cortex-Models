@@ -54,6 +54,7 @@ BET_USECOLS = [
     "ShortBetNameEn",
     "Wager",
     "CasinoWin",
+    "BetTheoWin",
     "Status",
     "PayoutCompleteDtm",
 ]
@@ -146,6 +147,7 @@ def prepare_bets(path: Path, games: pd.DataFrame, sessions: pd.DataFrame) -> pd.
     bet["GameId"] = pd.to_numeric(bet["GameId"], errors="coerce")
     bet["Wager"] = pd.to_numeric(bet["Wager"], errors="coerce").fillna(0.0)
     bet["CasinoWin"] = pd.to_numeric(bet["CasinoWin"], errors="coerce").fillna(0.0)
+    bet["BetTheoWin"] = pd.to_numeric(bet["BetTheoWin"], errors="coerce")
     bet["PayoutCompleteDtm"] = pd.to_datetime(bet["PayoutCompleteDtm"], utc=True, errors="coerce")
     bet["BetType"] = bet["BetType"].fillna("").astype(str).str.upper()
     bet["TypeOfBet"] = bet["TypeOfBet"].fillna("").astype(str).str.upper()
@@ -178,7 +180,10 @@ def prepare_bets(path: Path, games: pd.DataFrame, sessions: pd.DataFrame) -> pd.
     session_bets = betg.groupby("SessionId")["BetId"].transform("count").replace(0, np.nan)
     share = safe_divide(betg["Wager"], pd.to_numeric(betg["SessionTurnover"], errors="coerce"))
     share = share.fillna(1.0 / session_bets)
-    betg["TheoWin_row"] = pd.to_numeric(betg["SessionTheoWin"], errors="coerce").fillna(0.0) * share.fillna(0.0)
+    session_allocated_theo = (
+        pd.to_numeric(betg["SessionTheoWin"], errors="coerce").fillna(0.0) * share.fillna(0.0)
+    )
+    betg["TheoWin_row"] = betg["BetTheoWin"].where(betg["BetTheoWin"].notna(), session_allocated_theo)
     return betg
 
 
@@ -288,6 +293,9 @@ def build_player_period_features(sessions: pd.DataFrame, betg: pd.DataFrame) -> 
     sess_agg["credit_line"] = sess_agg["cash_buy_in"]
 
     features = bet_agg.merge(sess_agg, on=["period", "PlayerId"], how="outer")
+    session_theo = pd.to_numeric(features["total_session_theo"], errors="coerce").fillna(0.0)
+    bet_theo = pd.to_numeric(features["theo"], errors="coerce").fillna(0.0)
+    features["total_session_theo"] = session_theo.where(session_theo.ne(0.0), bet_theo)
     features = features.merge(primary, on=["period", "PlayerId"], how="left")
     features = features.merge(
         game_pivot[["period", "PlayerId", "baccarat_engagement_pct", "blackjack_engagement_pct", "game_concentration_pct"]],

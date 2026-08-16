@@ -10,7 +10,7 @@ from uuid import uuid4
 import numpy as np
 import pandas as pd
 
-from app.inference.recommendation_contract import recommendation_deduplication
+from app.inference.recommendation_contract import recommendation_deduplication_id
 from app.pipelines.lucky6_bigtiger.build_features import Lucky6FeatureRecord, Lucky6FeatureResult, STATIC_GLOBAL_FEATURES
 
 if TYPE_CHECKING:
@@ -315,6 +315,10 @@ def _prediction_payload(
             "type": "review_side_bet_advantage",
             "game_type": "baccarat",
             "side_bet": side_bet,
+            "game_id": str(record.game_id),
+            "shoe_id": str(record.shoe_id),
+            "table_id": str(record.table_id),
+            "advantageous_level": advantageous_level(advantage),
         }
         label = "Lucky 6" if side_bet == "lucky6" else "Big Tiger"
         recommendations.append(
@@ -347,10 +351,12 @@ def _prediction_payload(
                         "value": 0,
                     }
                 ],
-                "deduplication": recommendation_deduplication(
-                    policy_id="same-shoe-action-while-active-v1",
-                    entity_type="SHOE",
-                    action_fields=action.keys(),
+                "deduplication_id": recommendation_deduplication_id(
+                    {
+                        "model_type": "ShoeAdvantage",
+                        "game_id": str(record.game_id),
+                        "side_bet": side_bet.lower(),
+                    }
                 ),
             }
         )

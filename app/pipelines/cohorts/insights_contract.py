@@ -8,7 +8,8 @@ from typing import Any
 
 import pandas as pd
 
-from app.inference.recommendation_contract import recommendation_deduplication
+from app.inference.recommendation_contract import recommendation_deduplication_id
+from app.pipelines.cohorts.tier_lift_estimation import estimate_personalized_tier_lift
 
 
 SPEC_VERSION = 1.0
@@ -21,12 +22,69 @@ SOURCE_BY_MODEL = {
 ENV = "prod"
 MODEL_VERSION = "10.2.0"
 APPLICATIONS = ["cortexFloor"]
+MIN_TIER_LIFT_GROWTH_PCT = 5.0
 PLAYER_SCORE_WEIGHTS = {
     "worth": 0.35,
     "deal_hold": 0.35,
     "frequency": 0.20,
     "volatility": 0.10,
 }
+BETTING_STYLE_BY_PRIMARY_BEHAVIOR = {
+    "balanced": "Stable",
+    "engaged": "Progressive",
+    "side bet heavy": "Side-Bet Heavy",
+    "high volatility": "Volatile",
+    "chases losses": "Risk Wagerer",
+}
+TIER_LIFT_RATIONALE_TEMPLATES = {
+    "Protect momentum after losses": (
+        "{summary} A more measured experience after losses may help protect engagement without encouraging additional risk."
+    ),
+    "Strengthen current cohort position": (
+        "{summary} Reinforcing the experiences they already respond to may help them become more established in "
+        "{current_cohort}."
+    ),
+    "Invite to higher-limit path": (
+        "{summary} A carefully managed higher-limit option may better match their demonstrated play and support "
+        "continued engagement."
+    ),
+    "Improve table fit and access": (
+        "{summary} Guiding them toward {table_reference} may increase return visits and engagement."
+    ),
+    "Expose to preferred game features": (
+        "{summary} Highlighting familiar game features may increase engagement without requiring a major change in "
+        "how they play."
+    ),
+    "Develop hidden opportunity": (
+        "{summary} A gradual development plan may convert this existing potential into more consistent visits and value."
+    ),
+    "Build confidence and engagement": (
+        "{summary} A gradual, familiar experience may help them remain engaged without pushing them too quickly."
+    ),
+    "Increase return rhythm": (
+        "{summary} A timely invitation based on their existing preferences may encourage another visit and build a "
+        "steadier routine."
+    ),
+    "Develop from lowest cohort": (
+        "{summary} A focused path built around familiar experiences may help them develop toward {target_cohort}."
+    ),
+    "Move toward adjacent better cohort": (
+        "{summary} They are already behaving similarly to {target_cohort}; focusing on the smallest remaining gap may "
+        "help them progress naturally."
+    ),
+    "Maintain current trajectory": (
+        "{summary} Their recent behavior does not indicate a stronger need for change, so maintaining the current "
+        "experience and monitoring future activity is appropriate."
+    ),
+}
+TIER_LIFT_FALLBACK_RATIONALE = (
+    "{summary} This recommendation follows the player's demonstrated preferences and is intended to improve "
+    "engagement gradually."
+)
+TIER_LIFT_FOLLOW_UP_RATIONALE = (
+    "If the player does not respond to the initial recommendation, a host follow-up may improve engagement through "
+    "a more personal interaction."
+)
 
 BEHAVIOR_TRAITS = [
     {
@@ -539,17 +597,25 @@ def betting_style(row: pd.Series | None) -> dict[str, Any]:
     side_bet_intensity = safe_str(row.get("side_bet_intensity"), "Unknown")
     risk_label = safe_str(row.get("risk_volatility_label"), "Unknown")
     limit_readiness = first_score_0_100(row.get("pred_limit_path_readiness_prob"), row.get("stretch_capacity_score"))
-
-    label_parts = []
-    if primary_game and primary_game != "Unknown":
-        label_parts.append(primary_game.title())
-    if side_bet_intensity and side_bet_intensity != "Unknown":
-        label_parts.append(f"{side_bet_intensity} side-bet")
-    if risk_label and risk_label != "Unknown":
-        label_parts.append(risk_label)
+    primary_behavior = safe_str(row.get("primary_behavior")).lower()
+    label = BETTING_STYLE_BY_PRIMARY_BEHAVIOR.get(primary_behavior)
+    if label is None:
+        chase_rate = safe_float(row.get("chase_rate"), 0.0) or 0.0
+        side_bet_rate = safe_float(row.get("side_bet_rate"), 0.0) or 0.0
+        volatility = score_0_100(row.get("volatility_score_behavior"), 0.0) or 0.0
+        if chase_rate >= 0.20:
+            label = "Risk Wagerer"
+        elif side_bet_intensity.lower() == "high" or side_bet_rate >= 0.35:
+            label = "Side-Bet Heavy"
+        elif risk_label.lower() == "high risk" or volatility >= 75:
+            label = "Volatile"
+        elif (limit_readiness or 0.0) >= 55:
+            label = "Progressive"
+        else:
+            label = "Stable"
 
     return {
-        "label": " / ".join(label_parts) if label_parts else "Unknown betting style",
+        "label": label,
         "primary_game": primary_game,
         "avg_bet": optional_float(row.get("avg_bet"), 2),
         "side_bet_intensity": side_bet_intensity,
@@ -626,14 +692,14 @@ def shared_model_result(row: pd.Series) -> dict[str, Any]:
     }
 
 
-def recommendation_result(row: pd.Series, action_type: str) -> dict[str, Any]:
+def recommendation_result(row: pd.Series, action_type: str, reason: str | None = None) -> dict[str, Any]:
     return {
         "recommended_path": optional_str(row.get("recommended_path")),
         "action_type": action_type,
         "action": optional_str(row.get("recommendation_action")),
         "target": optional_str(row.get("recommendation_target")),
         "text": optional_str(row.get("player_recommendation")),
-        "reason": optional_str(row.get("recommendation_reason")),
+        "reason": reason or optional_str(row.get("recommendation_reason")),
         "supporting_signals": signal_list(row.get("supporting_signals")),
         "success_metric": optional_str(row.get("success_metric")),
         "path_fit_score": score_0_100(row.get("path_fit_score"), None),
@@ -645,14 +711,6 @@ def recommendation_result(row: pd.Series, action_type: str) -> dict[str, Any]:
 
 def recommendation_thresholds(metric: str, value: float) -> list[dict[str, Any]]:
     return [{"metric": metric, "operator": ">=", "value": value}]
-
-
-def deduplication(*action_fields: str) -> dict[str, Any]:
-    return recommendation_deduplication(
-        policy_id="same-player-action-while-active-v1",
-        entity_type="Player",
-        action_fields=action_fields,
-    )
 
 
 def build_cohort_insight(row: pd.Series) -> dict[str, Any]:
@@ -683,7 +741,14 @@ def build_cohort_insight(row: pd.Series) -> dict[str, Any]:
         "confidence": confidence,
         "time_to_live": ttl_iso(),
         "thresholds": recommendation_thresholds("payload.result.score", 0.2),
-        "deduplication": deduplication("type", "cohort"),
+        "deduplication_id": recommendation_deduplication_id(
+            {
+                "model_type": "PlayerCohort",
+                "player_id": player_id,
+                "action_type": "review_cohort_assignment",
+                "cohort": cohort_label,
+            }
+        ),
     }
     result = {
         "decision_class": "cohort_assignment",
@@ -726,6 +791,157 @@ def _tier_headline(path: str) -> str:
     return "Player Tier Lift Opportunity"
 
 
+def _tier_lift_projection_weeks(visits_per_week: float) -> int:
+    if visits_per_week >= 3.5:
+        return 1
+    if visits_per_week >= 2.5:
+        return 2
+    if visits_per_week >= 1.5:
+        return 3
+    return 4
+
+
+def _tier_time_to_action_days(visits_per_week: float) -> int:
+    if visits_per_week >= 2.5:
+        return 7
+    if visits_per_week >= 0.75:
+        return 14
+    return 21
+
+
+def _tier_visit_frequency(row: pd.Series) -> tuple[float, str]:
+    active_days = safe_float(row.get("active_days"), None)
+    frequency_source = "active_days_over_3_weeks"
+    if active_days is None or active_days <= 0:
+        active_days = safe_float(row.get("num_sessions"), None)
+        frequency_source = "sessions_over_3_weeks"
+    if active_days is None or active_days <= 0:
+        active_days = 3.0
+        frequency_source = "default_one_visit_per_week"
+    return round(active_days / 3.0, 2), frequency_source
+
+
+def _tier_theo_values(row: pd.Series) -> tuple[float, float, float, list[float]]:
+    estimate = estimate_personalized_tier_lift(row)
+    return (
+        estimate.current_theo,
+        estimate.expected_theo,
+        estimate.expected_theo_lift,
+        list(estimate.range95),
+    )
+
+
+def tier_lift_growth_pct(row: pd.Series) -> float | None:
+    current_theo, _, theo_lift, _ = _tier_theo_values(row)
+    if current_theo <= 0:
+        return None
+    return round((theo_lift / current_theo) * 100.0, 4)
+
+
+def _join_product_phrases(phrases: list[str]) -> str:
+    if not phrases:
+        return "shows a consistent recent pattern"
+    if len(phrases) == 1:
+        return phrases[0]
+    if len(phrases) == 2:
+        return f"{phrases[0]} and {phrases[1]}"
+    return f"{', '.join(phrases[:-1])}, and {phrases[-1]}"
+
+
+def _tier_player_summary(row: pd.Series) -> str:
+    game = safe_str(row.get("primary_game"))
+    game_pct = safe_float(row.get("primary_game_pct"), 0.0) or 0.0
+    game_affinity = score_0_100(row.get("game_affinity_score"), 0.0) or 0.0
+    side_bet_intensity = safe_str(row.get("side_bet_intensity")).lower()
+    side_bet_rate = safe_float(row.get("side_bet_rate"), 0.0) or 0.0
+    visits_per_week, _ = _tier_visit_frequency(row)
+
+    preferences = []
+    if game and game.lower() != "unknown":
+        game_name = game.title()
+        qualifier = "strongly prefers" if game_pct >= 60 or game_affinity >= 70 else "prefers"
+        preferences.append(f"{qualifier} {game_name}")
+    if side_bet_intensity == "high" or side_bet_rate >= 0.35:
+        preferences.append("frequently uses side bets")
+    elif side_bet_intensity == "medium" or side_bet_rate >= 0.15:
+        preferences.append("sometimes uses side bets")
+
+    if visits_per_week < 0.75:
+        frequency = "visits infrequently"
+    elif visits_per_week < 1.5:
+        frequency = "visits about once per week"
+    elif visits_per_week < 2.5:
+        frequency = "visits about twice per week"
+    else:
+        frequency = "visits frequently"
+
+    if preferences:
+        connector = "but" if visits_per_week < 1.5 else "and"
+        return f"This player {_join_product_phrases(preferences)}, {connector} {frequency}."
+    return f"This player {frequency}."
+
+
+def _tier_product_rationale(
+    row: pd.Series,
+    *,
+    path: str,
+    cohort_label: str,
+    target_label: str,
+) -> str:
+    game = safe_str(row.get("primary_game"))
+    table_reference = f"a familiar {game.title()} table" if game and game.lower() != "unknown" else "a familiar table"
+    template = TIER_LIFT_RATIONALE_TEMPLATES.get(path, TIER_LIFT_FALLBACK_RATIONALE)
+    return template.format(
+        summary=_tier_player_summary(row),
+        table_reference=table_reference,
+        current_cohort=cohort_label,
+        target_cohort=target_label,
+    )
+
+
+def _tier_subtitle(cohort_label: str, target_label: str) -> str:
+    if target_label and target_label.lower() not in {"target cohort", cohort_label.lower()}:
+        return f"This player shows strong potential to move toward {target_label}."
+    return f"This player shows strong potential to strengthen their position within {cohort_label}."
+
+
+def _tier_lift_chart(
+    row: pd.Series,
+    *,
+    current_theo: float,
+    lift: float,
+    unit: str,
+    range95: list[float] | None = None,
+) -> dict[str, Any]:
+    visits_per_week, frequency_source = _tier_visit_frequency(row)
+    weeks_to_goal = _tier_lift_projection_weeks(visits_per_week)
+    x_labels = ["Now", *[f"Week {week}" for week in range(1, weeks_to_goal + 1)]]
+    recommended_points = [round(current_theo + lift * step / weeks_to_goal, 2) for step in range(weeks_to_goal + 1)]
+    baseline_points = [current_theo] * (weeks_to_goal + 1)
+    chart = {
+        "type": "line",
+        "y_label": f"Projected Theo ({unit})",
+        "x_labels": x_labels,
+        "series": [
+            {"name": "Recommended", "points": recommended_points},
+            {"name": "Baseline (No action)", "points": baseline_points},
+        ],
+        "note": "Baseline assumes current Theo remains unchanged if no recommendation is taken.",
+        "projection": {
+            "method": "frequency_paced",
+            "strategy": "conservative_timeline",
+            "baseline_method": "current_theo_flat",
+            "visits_per_week": visits_per_week,
+            "frequency_source": frequency_source,
+            "weeks_to_goal": weeks_to_goal,
+            "model_horizon_weeks": 1,
+        },
+    }
+    if range95 is not None:
+        chart["final_range95"] = range95
+    return chart
+
+
 def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
     player_id = safe_str(row.get("player_id"), "unknown")
     path = safe_str(row.get("recommended_path"), "Player development path")
@@ -737,42 +953,72 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         raw_path_fit = row.get("recommendation_confidence")
     path_fit_probability = score_probability(raw_path_fit)
     path_fit = score_0_100(raw_path_fit) or 0.0
-    engagement_lift_probability = score_probability(row.get("pred_engagement_lift_prob"))
     engagement_lift = score_0_100(row.get("pred_engagement_lift_prob")) or 0.0
-    expected_theo = safe_float(row.get("avg_theo_delta"), 0.0) or 0.0
+    lift_estimate = estimate_personalized_tier_lift(row)
+    current_theo = lift_estimate.current_theo
+    expected_theo = lift_estimate.expected_theo
+    theo_lift = lift_estimate.expected_theo_lift
+    theo_range95 = list(lift_estimate.range95)
+    theo_growth_pct = lift_estimate.predicted_growth_pct
+    theo_impact = {
+        "current_theo": current_theo,
+        "expected_theo": expected_theo,
+        "theo_lift": theo_lift,
+        "expected_theo_lift": theo_lift,
+        "theo_growth_pct": theo_growth_pct,
+        "predicted_growth_pct": theo_growth_pct,
+        "range95": theo_range95,
+        "prediction": lift_estimate.diagnostics(),
+    }
+    follow_up_lift = round(theo_lift * 0.85, 2)
+    follow_up_theo_impact = {
+        "current_theo": current_theo,
+        "expected_theo": round(current_theo + follow_up_lift, 2),
+        "theo_lift": follow_up_lift,
+        "expected_theo_lift": follow_up_lift,
+        "theo_growth_pct": round((follow_up_lift / current_theo) * 100.0, 2) if current_theo > 0 else None,
+        "predicted_growth_pct": round((follow_up_lift / current_theo) * 100.0, 2) if current_theo > 0 else None,
+        "range95": [round(value * 0.85, 2) for value in theo_range95],
+        "prediction": {**lift_estimate.diagnostics(), "follow_up_discount_factor": 0.85},
+    }
     expected_deficit = optional_float(row.get("expected_deficit"), 2)
-    impact_value = round(expected_theo, 2) if expected_theo else engagement_lift
-    impact_unit = "EV" if expected_theo else "/100 engagement lift"
-    baseline_text = "baseline/no-offer comparison is tracked against the historical no-action path"
+    impact_value = theo_lift
+    impact_unit = "AWT"
     confidence = confidence_from_score(path_fit)
     decision_class = "reactivation_opportunity"
+    visits_per_week, _ = _tier_visit_frequency(row)
+    primary_action_days = _tier_time_to_action_days(visits_per_week)
+    follow_up_action_days = min(primary_action_days + 7, 21)
 
     if headline == "VIP Baccarat Re-Engagement":
         rec_text = (
-            f"Invite Player {player_id} within the next 7 days to a Hi-limit Baccarat table like BA0054 or similar. "
+            f"Invite Player {player_id} within the next {primary_action_days} days to a Hi-limit Baccarat table like "
+            "BA0054 or similar. "
             f"Modeled uplift: {engagement_lift:.1f}/100 engagement lift; expected theo value: {expected_theo:.2f}; "
             f"baseline/no-offer comparison: no invite; confidence: {confidence}."
         )
     elif headline == "Session Increase":
         rec_text = (
-            f"Offer Player {player_id} a session-increase path within the next 7 days. "
+            f"Offer Player {player_id} a session-increase path within the next {primary_action_days} days. "
             f"Option 1 should increase visit rhythm; option 2 should protect current play quality. "
             f"Modeled uplift: {engagement_lift:.1f}/100 engagement lift; expected theo value: {expected_theo:.2f}; "
             f"baseline/no-offer comparison: no session action; confidence: {confidence}."
         )
     else:
         rec_text = (
-            f"Move Player {player_id} toward {target_label} within the next 7 days. "
+            f"Move Player {player_id} toward {target_label} within the next {primary_action_days} days. "
             f"Modeled uplift: {engagement_lift:.1f}/100 engagement lift; expected theo value: {expected_theo:.2f}; "
             f"baseline/no-offer comparison: no recommendation; confidence: {confidence}."
         )
 
-    rationale = (
-        f"Why this surfaced: Player {player_id} is currently in {cohort_label} and the recommended path is {path}. "
-        f"Path fit is {path_fit:.1f}/100, target cohort is {target_label}, and {baseline_text}."
+    primary_rationale = _tier_product_rationale(
+        row,
+        path=path,
+        cohort_label=cohort_label,
+        target_label=target_label,
     )
     primary_text = safe_str(row.get("player_recommendation"), rec_text)
-    primary_rationale = safe_str(row.get("recommendation_reason"), rationale)
+    recommendation_target = safe_str(row.get("recommendation_target"), path)
     action_source = safe_str(row.get("recommendation_action"), path).lower()
     shared = shared_model_result(row)
     if "offer" in action_source or "invite" in action_source or "baccarat" in action_source:
@@ -789,7 +1035,6 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         "recommended_path": path,
         "target_cohort": target_label,
     }
-    primary_action_fields = ["type", "recommended_path", "target_cohort"]
     if headline == "VIP Baccarat Re-Engagement":
         primary_action.update(
             {
@@ -798,20 +1043,30 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
                 "campaign_id": "reactivation-standard",
             }
         )
-        primary_action_fields.extend(["game_type", "segment", "campaign_id"])
 
     recommendation = {
         "id": 1,
         "action": primary_action,
         "text": primary_text,
         "rationale": primary_rationale,
-        "modeled_impact": {"value": impact_value, "unit": impact_unit},
+        "modeled_impact": {"value": impact_value, "unit": impact_unit, **theo_impact},
         "roi": {"value": path_fit, "unit": "/100 path fit"},
-        "time_to_action": {"unit": "Minutes", "value": 30},
+        "time_to_action": {"unit": "Days", "value": primary_action_days},
         "confidence": confidence,
         "time_to_live": ttl_iso(),
-        "thresholds": recommendation_thresholds("payload.result.score", 0.8),
-        "deduplication": deduplication(*primary_action_fields),
+        "thresholds": recommendation_thresholds(
+            "payload.result.modeled_impact.theo_growth_pct", MIN_TIER_LIFT_GROWTH_PCT
+        ),
+        "deduplication_id": recommendation_deduplication_id(
+            {
+                "model_type": "CohortTierLift",
+                "player_id": player_id,
+                "action_type": primary_action_type,
+                "recommended_path": path,
+                "target_cohort": target_label,
+                "recommendation_target": recommendation_target,
+            }
+        ),
     }
     follow_up = {
         "id": 2,
@@ -825,26 +1080,54 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
             "recommendation_id": 1,
             "condition": "not_redeemed",
         },
-        "text": f"Assign host follow-up within 7 days if the {path.lower()} action is not redeemed.",
-        "rationale": f"Keeps Player {player_id} aligned to {target_label} if the primary action does not convert.",
-        "modeled_impact": {"value": round(impact_value * 0.85, 2), "unit": impact_unit},
+        "text": (
+            f"Assign host follow-up within {follow_up_action_days} days if the {path.lower()} action is not redeemed."
+        ),
+        "rationale": TIER_LIFT_FOLLOW_UP_RATIONALE,
+        "modeled_impact": {
+            "value": follow_up_lift,
+            "unit": impact_unit,
+            **follow_up_theo_impact,
+        },
         "roi": {"value": round(path_fit * 0.85, 1), "unit": "/100 path fit"},
-        "time_to_action": {"unit": "Minutes", "value": 45},
+        "time_to_action": {"unit": "Days", "value": follow_up_action_days},
         "confidence": confidence,
         "time_to_live": ttl_iso(),
-        "thresholds": recommendation_thresholds("payload.result.score", 0.8),
-        "deduplication": deduplication("type", "recommended_path", "target_cohort", "trigger"),
+        "thresholds": recommendation_thresholds(
+            "payload.result.modeled_impact.theo_growth_pct", MIN_TIER_LIFT_GROWTH_PCT
+        ),
+        "deduplication_id": recommendation_deduplication_id(
+            {
+                "model_type": "CohortTierLift",
+                "player_id": player_id,
+                "action_type": "host_follow_up",
+                "recommended_path": path,
+                "target_cohort": target_label,
+                "recommendation_target": recommendation_target,
+                "trigger": "primary_action_not_redeemed",
+            }
+        ),
     }
-    baseline_start = min(path_fit, score_0_100(row.get("cohort_edge_score")) or path_fit)
-    baseline_points = [round(min(100.0, baseline_start + i * max(engagement_lift, 1.0) * 0.08), 1) for i in range(5)]
-    recommended_points = [round(min(100.0, path_fit + i * max(engagement_lift, 1.0) * 0.12), 1) for i in range(5)]
+    recommendations = [recommendation, follow_up]
+    for recommendation_item in recommendations:
+        recommendation_impact = recommendation_item["modeled_impact"]
+        recommendation_lift = safe_float(recommendation_impact.get("theo_lift"), 0.0) or safe_float(
+            recommendation_impact.get("value"), 0.0
+        )
+        recommendation_item["chart"] = _tier_lift_chart(
+            row,
+            current_theo=safe_float(recommendation_impact.get("current_theo"), 0.0) or 0.0,
+            lift=recommendation_lift,
+            unit=safe_str(recommendation_impact.get("unit"), "lift"),
+            range95=recommendation_impact.get("range95") if recommendation_impact.get("theo_lift") else None,
+        )
     result = {
         "decision_class": decision_class,
         "score": path_fit_probability,
         "confidence": confidence,
-        "modeled_impact": {"value": impact_value, "unit": impact_unit, "horizon_min": 10080},
+        "modeled_impact": {"value": impact_value, "unit": impact_unit, "horizon_min": 10080, **theo_impact},
         "expected_deficit": expected_deficit,
-        "recommendation": recommendation_result(row, primary_action_type),
+        "recommendation": recommendation_result(row, primary_action_type, primary_rationale),
         "cohort": cohort_result(row),
         "target_better_cohort": target_better_cohort_result(row),
         "predicted_probabilities": predicted_probabilities(row),
@@ -859,17 +1142,9 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         result=result,
         presentation={
             "headline": headline,
+            "subtitle": _tier_subtitle(cohort_label, target_label),
             "trigger_metric": "path fit and expected tier lift",
-            "recommendations": [recommendation, follow_up],
-            "chart": {
-                "type": "line",
-                "y_label": "Score",
-                "x_labels": ["Now", "15m", "30m", "45m", "60m"],
-                "series": [
-                    {"name": "Recommended", "points": recommended_points},
-                    {"name": "Baseline", "points": baseline_points},
-                ],
-            },
+            "recommendations": recommendations,
         },
     )
 
@@ -902,7 +1177,14 @@ def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
         "confidence": confidence,
         "time_to_live": ttl_iso(),
         "thresholds": recommendation_thresholds("payload.result.player_score", 55),
-        "deduplication": deduplication("type"),
+        "deduplication_id": recommendation_deduplication_id(
+            {
+                "model_type": "PlayerPerformance",
+                "player_id": player_id,
+                "action_type": "review_player_score",
+                "player_score": f"{score:.1f}",
+            }
+        ),
     }
     result = {
         "decision_class": "player_score",
@@ -936,6 +1218,11 @@ def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
 
 
 def merge_path_lift(recommendations: pd.DataFrame, output_dir: Path) -> pd.DataFrame:
+    """Merge legacy validation columns retained for compatibility.
+
+    Tier-lift JSON is estimated per player by ``estimate_personalized_tier_lift``;
+    these path-level columns no longer drive modeled-impact values.
+    """
     validation_path = output_dir / "validation" / "expected_lift_by_recommendation_path.csv"
     if not validation_path.exists() or "recommended_path" not in recommendations.columns:
         return recommendations

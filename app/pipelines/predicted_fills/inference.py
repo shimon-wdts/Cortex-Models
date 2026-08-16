@@ -10,7 +10,7 @@ from uuid import uuid4
 import numpy as np
 import pandas as pd
 
-from app.inference.recommendation_contract import recommendation_deduplication
+from app.inference.recommendation_contract import recommendation_deduplication_id
 
 if TYPE_CHECKING:
     from app.models.pipeline_contracts import RunContext
@@ -247,6 +247,14 @@ def build_fill_alerts_json(
         recommendation_items: list[dict[str, object]] = []
         for idx, action_type in enumerate(types):
             action = _fill_action(action_type, row, table_id)
+            deduplication_fields = {
+                "model_type": "PredictedFills",
+                "table_id": table_id,
+                "action_type": action_type,
+                "severity": severity.lower(),
+            }
+            if action_type == "table_transfer" and action.get("source_table_id") is not None:
+                deduplication_fields["source_table_id"] = str(action["source_table_id"])
             recommendation_items.append(
                 {
                     "id": idx + 1,
@@ -274,11 +282,7 @@ def build_fill_alerts_json(
                             "value": threshold,
                         }
                     ],
-                    "deduplication": recommendation_deduplication(
-                        policy_id="same-table-action-while-active-v1",
-                        entity_type="TABLE",
-                        action_fields=action.keys(),
-                    ),
+                    "deduplication_id": recommendation_deduplication_id(deduplication_fields),
                 }
             )
 
