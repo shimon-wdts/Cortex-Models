@@ -3,7 +3,7 @@ from pathlib import Path
 
 from dynaconf import Dynaconf
 
-env = os.getenv("CORTEX_ENV", "local").strip().lower() or "local"
+env = os.getenv("CORTEX_ENV", "local-env").strip().lower() or "local-env"
 base_dir = Path(__file__).resolve().parents[2]
 config_dir = base_dir / "config"
 _settings_file_candidates = [
