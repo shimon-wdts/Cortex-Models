@@ -22,3 +22,15 @@ model_registry:
     ShoeAdvantage:
       schedule:
         enabled: true
+    predicted_fills:
+      schedule:
+        enabled: true    
+    cohort:
+      schedule:
+        enabled: true    
+    cohort_tier_lift:
+      schedule:
+        enabled: true    
+    playerscore:
+      schedule:
+        enabled: true    
