@@ -438,8 +438,8 @@ model_registry:
       output_schema_version: 1.0
       severity_default: info
       parameters:
-        gaming_day_start: "2026-07-01"
-        gaming_day_end: "2026-07-21"
+        start_offset_min: 1440
+        gaming_day_end: now
         limit_games: 500
         limit_bets: 5000
         json_limit: 25
@@ -467,8 +467,8 @@ model_registry:
       output_schema_version: 1.0
       severity_default: high
       parameters:
-        gaming_day_start: "2026-07-01"
-        gaming_day_end: "2026-07-21"
+        start_offset_min: 1440
+        gaming_day_end: now
         limit_games: 500
         limit_bets: 5000
         json_limit: 25
@@ -496,8 +496,8 @@ model_registry:
       output_schema_version: 1.0
       severity_default: medium
       parameters:
-        gaming_day_start: "2026-07-01"
-        gaming_day_end: "2026-07-21"
+        start_offset_min: 1440
+        gaming_day_end: now
         limit_games: 500
         limit_bets: 5000
         json_limit: 25
