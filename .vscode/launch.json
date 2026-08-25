@@ -9,7 +9,11 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "env": {
+                "PREFECT_API_URL": "http://127.0.0.1:4200/api",
+                "CORTEX_ENV": "local-env"
+            }
         },
         {
             "name": "Python: Prefect Server",
@@ -19,7 +23,7 @@
             "args": ["server", "start"],
             "env": {
                 "PREFECT_API_URL": "http://127.0.0.1:4200/api",
-                "CORTEX_ENV": "local"
+                "CORTEX_ENV": "local-env"
             },
             "console": "integratedTerminal",
             "justMyCode": false
@@ -32,7 +36,7 @@
             "args": ["worker", "start", "-p", "cortex-models", "--type", "process"],
             "env": {
                 "PREFECT_API_URL": "http://127.0.0.1:4200/api",
-                "CORTEX_ENV": "local"
+                "CORTEX_ENV": "local-env"
             },
             "console": "integratedTerminal",
             "justMyCode": true,
