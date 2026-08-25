@@ -304,30 +304,29 @@ def _prediction_payload(
     severity = "high" if score > 0.05 else "medium" if score > 0 else "low"
 
     recommendations = []
-    for recommendation_id, (side_bet, advantage, metric) in enumerate(
+    for recommendation_id, (side_bet_key, side_bet_label, advantage, metric) in enumerate(
         (
-            ("lucky6", lucky6adv, "payload.result.lucky6adv"),
-            ("big_tiger", big_tiger_adv, "payload.result.bigTigeradv"),
+            ("lucky6", "LUCKY SIX", lucky6adv, "payload.result.lucky6adv"),
+            ("big_tiger", "BIG TIGER", big_tiger_adv, "payload.result.bigTigeradv"),
         ),
         start=1,
     ):
         action = {
             "type": "review_side_bet_advantage",
             "game_type": "baccarat",
-            "side_bet": side_bet,
+            "side_bet": side_bet_label,
             "game_id": str(record.game_id),
             "shoe_id": str(record.shoe_id),
             "table_id": str(record.table_id),
             "advantageous_level": advantageous_level(advantage),
         }
-        label = "Lucky 6" if side_bet == "lucky6" else "Big Tiger"
         recommendations.append(
             {
                 "id": recommendation_id,
                 "action": action,
-                "text": f"Review the {label} advantage for Shoe {record.shoe_id}.",
+                "text": f"Review the {side_bet_label} advantage for Shoe {record.shoe_id}.",
                 "rationale": (
-                    f"The model estimates the {label} advantage at {advantage:.6f} EV per unit wager "
+                    f"The model estimates the {side_bet_label} advantage at {advantage:.6f} EV per unit wager "
                     f"with {record.cards_remaining} cards remaining."
                 ),
                 "modeled_impact": {
@@ -355,7 +354,7 @@ def _prediction_payload(
                     {
                         "model_type": "ShoeAdvantage",
                         "game_id": str(record.game_id),
-                        "side_bet": side_bet.lower(),
+                        "side_bet": side_bet_key,
                     }
                 ),
             }
@@ -429,7 +428,7 @@ def _prediction_payload(
                 "chart": {
                     "type": "bar",
                     "y_label": "EV per unit wager",
-                    "x_labels": ["Lucky 6", "Big Tiger"],
+                    "x_labels": ["LUCKY SIX", "BIG TIGER"],
                     "series": [
                         {
                             "name": "Predicted",

@@ -73,6 +73,11 @@ def test_shoe_advantage_uses_game_and_side_bet() -> None:
     recommendations = event["payload"]["presentation"]["recommendations"]
 
     assert len(recommendations) == 2
+    assert [recommendation["action"]["side_bet"] for recommendation in recommendations] == [
+        "LUCKY SIX",
+        "BIG TIGER",
+    ]
+    assert event["payload"]["presentation"]["chart"]["x_labels"] == ["LUCKY SIX", "BIG TIGER"]
     for recommendation in recommendations:
         assert_sha_only(recommendation)
         action = recommendation["action"]
@@ -84,7 +89,7 @@ def test_shoe_advantage_uses_game_and_side_bet() -> None:
             {
                 "model_type": "ShoeAdvantage",
                 "game_id": "116000235",
-                "side_bet": side_bet,
+                "side_bet": "lucky6" if side_bet == "LUCKY SIX" else "big_tiger",
             }
         )
     assert recommendations[0]["action"]["advantageous_level"] == "l"
