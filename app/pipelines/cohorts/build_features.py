@@ -272,6 +272,7 @@ def build_player_period_features(sessions: pd.DataFrame, betg: pd.DataFrame) -> 
         .agg(
             num_sessions=("SessionId", "nunique"),
             latest_session_id=("SessionId", "last"),
+            latest_table_id=("TableId", "last"),
             active_days=("GamingDay", "nunique"),
             hours_played=("session_hours", "sum"),
             avg_session_hours=("session_hours", "mean"),

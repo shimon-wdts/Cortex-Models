@@ -293,6 +293,43 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
     )
 
 
+def test_tier_lift_uses_latest_table_as_entity_and_retains_player_id() -> None:
+    event = build_tier_lift_insight(
+        pd.Series(
+            {
+                "player_id": "1000214",
+                "latest_table_id": "71",
+                "recommended_path": "Improve table fit and access",
+                "path_fit_score": 0.8,
+                "active_days": 3,
+            }
+        )
+    )
+
+    assert event["entity"] == [
+        {"type": "TABLE", "id": "71", "present_in_user_interface": True}
+    ]
+    assert event["player_id"] == "1000214"
+    assert event["table_id"] == "71"
+
+
+def test_tier_lift_omits_entity_when_latest_table_is_unavailable() -> None:
+    event = build_tier_lift_insight(
+        pd.Series(
+            {
+                "player_id": "1000214",
+                "recommended_path": "Maintain current trajectory",
+                "path_fit_score": 0.8,
+                "active_days": 3,
+            }
+        )
+    )
+
+    assert event["entity"] == []
+    assert event["player_id"] == "1000214"
+    assert "table_id" not in event
+
+
 def test_tier_lift_projection_shortens_for_more_frequent_visits() -> None:
     expected_weeks = {3: 4, 6: 3, 9: 2, 12: 1}
     for active_days, weeks_to_goal in expected_weeks.items():

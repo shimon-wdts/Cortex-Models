@@ -77,6 +77,7 @@ def test_bet_theo_backfills_zero_session_theo() -> None:
 
     assert total["theo"] == 8.5
     assert total["total_session_theo"] == 8.5
+    assert total["latest_table_id"] == "7"
 
     tier_row = total.copy()
     tier_row["path_fit_score"] = 0.9
@@ -87,6 +88,11 @@ def test_bet_theo_backfills_zero_session_theo() -> None:
     tier_row["target_better_cohort_label"] = "Target cohort"
     event = build_tier_lift_insight(tier_row)
 
+    assert event["entity"] == [
+        {"type": "TABLE", "id": "7", "present_in_user_interface": True}
+    ]
+    assert event["player_id"] == "7295"
+    assert event["table_id"] == "7"
     impact = event["payload"]["result"]["modeled_impact"]
     assert impact["current_theo"] == 2.83
     assert impact["expected_theo"] == 3.0

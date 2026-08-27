@@ -367,6 +367,18 @@ def insight_entities(row: pd.Series) -> list[dict[str, Any]]:
     return entities
 
 
+def tier_lift_table_id(row: pd.Series) -> str:
+    """Return the table from the player's latest session when available."""
+    return safe_str(row.get("latest_table_id")) or safe_str(row.get("table_id"))
+
+
+def tier_lift_entities(row: pd.Series) -> list[dict[str, Any]]:
+    table_id = tier_lift_table_id(row)
+    if not table_id:
+        return []
+    return [{"type": "TABLE", "id": table_id, "present_in_user_interface": True}]
+
+
 def base_payload(
     *,
     model_type: str,
@@ -1135,10 +1147,10 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         "player_score": shared["player_score"],
         "betting_style": shared["betting_style"],
     }
-    return base_payload(
+    event = base_payload(
         model_type="CohortTierLift",
         severity=severity_from_score(path_fit, actionable=True),
-        entities=insight_entities(row),
+        entities=tier_lift_entities(row),
         result=result,
         presentation={
             "headline": headline,
@@ -1147,6 +1159,11 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
             "recommendations": recommendations,
         },
     )
+    event["player_id"] = player_id
+    table_id = tier_lift_table_id(row)
+    if table_id:
+        event["table_id"] = table_id
+    return event
 
 
 def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
