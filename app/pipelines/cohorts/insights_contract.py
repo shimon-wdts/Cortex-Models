@@ -238,15 +238,6 @@ PRIMARY_BEHAVIOR_PRIORITY_GROUPS = [
     ),
 ]
 
-ENTITY_FIELDS = [
-    ("TABLE", ("table_id", "tableId", "table_code", "table"), True),
-    ("Player", ("player_id", "playerId"), True),
-    ("bet_id", ("bet_id", "betId"), False),
-    ("game_id", ("game_id", "gameId"), False),
-    ("topology_id", ("topology_id", "topologyId", "topologu_id"), False),
-]
-
-
 def safe_str(value: Any, default: str = "") -> str:
     if value is None or pd.isna(value):
         return default
@@ -351,32 +342,20 @@ def ttl_iso(days: int = 30) -> str:
     return (pd.Timestamp.utcnow() + pd.Timedelta(days=days)).isoformat().replace("+00:00", "Z")
 
 
-def insight_entities(row: pd.Series) -> list[dict[str, Any]]:
-    entities: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for entity_type, fields, present in ENTITY_FIELDS:
-        entity_id = ""
-        for field in fields:
-            entity_id = safe_str(row.get(field))
-            if entity_id:
-                break
-        if not entity_id or (entity_type, entity_id) in seen:
-            continue
-        seen.add((entity_type, entity_id))
-        entities.append({"type": entity_type, "id": entity_id, "present_in_user_interface": present})
-    return entities
+def player_entities(player_id: Any) -> list[dict[str, Any]]:
+    """Return the required player entity for all cohort-family insights."""
+    return [
+        {
+            "type": "Player",
+            "id": safe_str(player_id, "unknown"),
+            "present_in_user_interface": True,
+        }
+    ]
 
 
 def tier_lift_table_id(row: pd.Series) -> str:
     """Return the table from the player's latest session when available."""
     return safe_str(row.get("latest_table_id")) or safe_str(row.get("table_id"))
-
-
-def tier_lift_entities(row: pd.Series) -> list[dict[str, Any]]:
-    table_id = tier_lift_table_id(row)
-    if not table_id:
-        return []
-    return [{"type": "TABLE", "id": table_id, "present_in_user_interface": True}]
 
 
 def base_payload(
@@ -778,7 +757,7 @@ def build_cohort_insight(row: pd.Series) -> dict[str, Any]:
     return base_payload(
         model_type="PlayerCohort",
         severity=severity_from_score(confidence_score, actionable=False),
-        entities=insight_entities(row),
+        entities=player_entities(player_id),
         result=result,
         presentation={
             "headline": "Player Cohort Assignment",
@@ -1150,7 +1129,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
     event = base_payload(
         model_type="CohortTierLift",
         severity=severity_from_score(path_fit, actionable=True),
-        entities=tier_lift_entities(row),
+        entities=player_entities(player_id),
         result=result,
         presentation={
             "headline": headline,
@@ -1218,7 +1197,7 @@ def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
     return base_payload(
         model_type="PlayerPerformance",
         severity=severity_from_score(score, actionable=True),
-        entities=insight_entities(row),
+        entities=player_entities(player_id),
         result=result,
         presentation={
             "headline": "Player Score",

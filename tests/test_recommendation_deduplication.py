@@ -162,6 +162,9 @@ def test_player_cohort_uses_player_action_and_cohort() -> None:
     )
     recommendation = event["payload"]["presentation"]["recommendations"][0]
 
+    assert event["entity"] == [
+        {"type": "Player", "id": "1000214", "present_in_user_interface": True}
+    ]
     assert_sha_only(recommendation)
     assert recommendation["deduplication_id"] == recommendation_deduplication_id(
         {
@@ -293,7 +296,7 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
     )
 
 
-def test_tier_lift_uses_latest_table_as_entity_and_retains_player_id() -> None:
+def test_tier_lift_uses_player_as_entity_and_retains_latest_table_id() -> None:
     event = build_tier_lift_insight(
         pd.Series(
             {
@@ -307,13 +310,13 @@ def test_tier_lift_uses_latest_table_as_entity_and_retains_player_id() -> None:
     )
 
     assert event["entity"] == [
-        {"type": "TABLE", "id": "71", "present_in_user_interface": True}
+        {"type": "Player", "id": "1000214", "present_in_user_interface": True}
     ]
     assert event["player_id"] == "1000214"
     assert event["table_id"] == "71"
 
 
-def test_tier_lift_omits_entity_when_latest_table_is_unavailable() -> None:
+def test_tier_lift_uses_player_entity_when_latest_table_is_unavailable() -> None:
     event = build_tier_lift_insight(
         pd.Series(
             {
@@ -325,7 +328,9 @@ def test_tier_lift_omits_entity_when_latest_table_is_unavailable() -> None:
         )
     )
 
-    assert event["entity"] == []
+    assert event["entity"] == [
+        {"type": "Player", "id": "1000214", "present_in_user_interface": True}
+    ]
     assert event["player_id"] == "1000214"
     assert "table_id" not in event
 
@@ -495,6 +500,9 @@ def test_player_performance_includes_displayed_score() -> None:
     )
     recommendation = event["payload"]["presentation"]["recommendations"][0]
 
+    assert event["entity"] == [
+        {"type": "Player", "id": "1000214", "present_in_user_interface": True}
+    ]
     assert event["payload"]["result"]["player_score"] == 73.4
     assert_sha_only(recommendation)
     assert recommendation["deduplication_id"] == recommendation_deduplication_id(

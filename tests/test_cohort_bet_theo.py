@@ -89,7 +89,7 @@ def test_bet_theo_backfills_zero_session_theo() -> None:
     event = build_tier_lift_insight(tier_row)
 
     assert event["entity"] == [
-        {"type": "TABLE", "id": "7", "present_in_user_interface": True}
+        {"type": "Player", "id": "7295", "present_in_user_interface": True}
     ]
     assert event["player_id"] == "7295"
     assert event["table_id"] == "7"
