@@ -731,7 +731,9 @@ def build_cohort_insight(row: pd.Series) -> dict[str, Any]:
         "time_to_action": {"unit": "Minutes", "value": 0},
         "confidence": confidence,
         "time_to_live": ttl_iso(),
-        "thresholds": recommendation_thresholds("payload.result.score", 0.2),
+        # Cohort profile data is informational and must reach Floor for every
+        # eligible player; recommendation thresholds are reserved for actions.
+        "thresholds": [],
         "deduplication_id": recommendation_deduplication_id(
             {
                 "model_type": "PlayerCohort",
@@ -1172,7 +1174,9 @@ def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
         "time_to_action": {"unit": "Days", "value": 7},
         "confidence": confidence,
         "time_to_live": ttl_iso(),
-        "thresholds": recommendation_thresholds("payload.result.player_score", 55),
+        # A low score still belongs on the player's profile. Do not let the
+        # output service suppress the entire profile event.
+        "thresholds": [],
         "deduplication_id": recommendation_deduplication_id(
             {
                 "model_type": "PlayerPerformance",

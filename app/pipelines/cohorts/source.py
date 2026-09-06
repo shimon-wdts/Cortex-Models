@@ -30,10 +30,11 @@ def build_features_from_frames(
     raw_sessions: pd.DataFrame,
     raw_bets: pd.DataFrame,
     raw_games: pd.DataFrame,
+    observation_start: Any | None = None,
 ) -> CohortsFeatureResult:
-    sessions = prepare_sessions_df(raw_sessions)
+    sessions = prepare_sessions_df(raw_sessions, observation_start=observation_start)
     games = prepare_games_df(raw_games)
-    bets = prepare_bets_df(raw_bets, games, sessions)
+    bets = prepare_bets_df(raw_bets, games, sessions, observation_start=observation_start)
     if bets.empty or sessions.empty:
         raise ValueError("Cohorts input produced no usable Week 1-3 bet/session rows.")
 
@@ -47,6 +48,7 @@ def build_features_from_frames(
         "player_period_rows": int(len(features)),
         "player_total_rows": int(len(total)),
         "winner_loser_ratio": worth_ratio,
+        "observation_start": str(observation_start) if observation_start is not None else None,
     }
     return CohortsFeatureResult(
         player_period_features=features,
@@ -70,7 +72,7 @@ def normalize_columns(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return out[cols]
 
 
-def prepare_sessions_df(sess: pd.DataFrame) -> pd.DataFrame:
+def prepare_sessions_df(sess: pd.DataFrame, observation_start: Any | None = None) -> pd.DataFrame:
     sess = normalize_columns(sess, SESSION_USECOLS)
     sess["PlayerId"] = clean_id(sess["PlayerId"])
     sess["SessionId"] = clean_id(sess["SessionId"])
@@ -78,7 +80,7 @@ def prepare_sessions_df(sess: pd.DataFrame) -> pd.DataFrame:
     for col in ["SessionStartDtm", "SessionEndDtm", "FirstWagerGameStartDtm"]:
         sess[col] = pd.to_datetime(sess[col], utc=True, errors="coerce")
     sess["GamingDay"] = pd.to_datetime(sess["GamingDay"], errors="coerce").dt.normalize()
-    sess["period"] = assign_period(sess["GamingDay"])
+    sess["period"] = assign_period(sess["GamingDay"], start_day=observation_start)
     sess = sess[sess["period"].ne("")].copy()
     for col in ["NumBets", "NumGamesElapsed", "NumGamesWithWager", "Turnover", "TheoWin", "PlayerWin", "Buyin"]:
         sess[col] = pd.to_numeric(sess[col], errors="coerce").fillna(0.0)
@@ -100,7 +102,12 @@ def prepare_games_df(game: pd.DataFrame) -> pd.DataFrame:
     return game
 
 
-def prepare_bets_df(bet: pd.DataFrame, games: pd.DataFrame, sessions: pd.DataFrame) -> pd.DataFrame:
+def prepare_bets_df(
+    bet: pd.DataFrame,
+    games: pd.DataFrame,
+    sessions: pd.DataFrame,
+    observation_start: Any | None = None,
+) -> pd.DataFrame:
     bet = normalize_columns(bet, BET_USECOLS)
     bet["PlayerId"] = clean_id(bet["PlayerId"])
     bet["SessionId"] = clean_id(bet["SessionId"])
@@ -131,7 +138,7 @@ def prepare_bets_df(bet: pd.DataFrame, games: pd.DataFrame, sessions: pd.DataFra
     betg = betg.merge(session_small, on=["SessionId", "PlayerId"], how="left", validate="many_to_one")
     betg["GamingDay"] = pd.to_datetime(betg["GamingDay"], errors="coerce").fillna(betg["SessionGamingDay"])
     betg["GamingDay"] = pd.to_datetime(betg["GamingDay"], errors="coerce").dt.normalize()
-    betg["period"] = assign_period(betg["GamingDay"])
+    betg["period"] = assign_period(betg["GamingDay"], start_day=observation_start)
     betg["period"] = betg["period"].where(betg["period"].ne(""), betg["SessionPeriod"])
     betg = betg[betg["period"].isin(["Week 1", "Week 2", "Week 3"])].copy()
     betg["event_time"] = betg["GameStartDtm"].fillna(betg["PayoutCompleteDtm"])

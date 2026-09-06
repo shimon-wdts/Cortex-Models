@@ -165,6 +165,7 @@ def test_player_cohort_uses_player_action_and_cohort() -> None:
     assert event["entity"] == [
         {"type": "Player", "id": "1000214", "present_in_user_interface": True}
     ]
+    assert recommendation["thresholds"] == []
     assert_sha_only(recommendation)
     assert recommendation["deduplication_id"] == recommendation_deduplication_id(
         {
@@ -504,6 +505,7 @@ def test_player_performance_includes_displayed_score() -> None:
         {"type": "Player", "id": "1000214", "present_in_user_interface": True}
     ]
     assert event["payload"]["result"]["player_score"] == 73.4
+    assert recommendation["thresholds"] == []
     assert_sha_only(recommendation)
     assert recommendation["deduplication_id"] == recommendation_deduplication_id(
         {

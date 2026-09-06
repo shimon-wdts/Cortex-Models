@@ -11,8 +11,9 @@ from .config import DEFAULT_MODEL_DIR, DEFAULT_OUTPUT_DIR
 from .utils import apply_zscore, read_json, safe_write_csv
 
 
-def infer_cohorts(feature_path: Path, model_path: Path, output_dir: Path) -> dict[str, object]:
-    data = pd.read_csv(feature_path, low_memory=False)
+def infer_cohorts_from_frame(features: pd.DataFrame, model_path: Path) -> pd.DataFrame:
+    """Assign cohorts without serializing intermediate pipeline data."""
+    data = features.copy()
     model = read_json(model_path)
     features = model["features"]
     x_df = apply_zscore(data, features, model["scalers"])
@@ -70,9 +71,15 @@ def infer_cohorts(feature_path: Path, model_path: Path, output_dir: Path) -> dic
         & data["target_better_cohort_margin"].le(edge_threshold)
     )
     data["cohort_edge_score"] = 1.0 / (1.0 + data["target_better_cohort_margin"].clip(lower=0))
+    return data
+
+
+def infer_cohorts(feature_path: Path, model_path: Path, output_dir: Path) -> dict[str, object]:
+    data = pd.read_csv(feature_path, low_memory=False)
+    cohorts = infer_cohorts_from_frame(data, model_path)
     out = output_dir / "player_cohorts.csv"
-    safe_write_csv(data, out)
-    return {"rows": int(len(data)), "output": str(out)}
+    safe_write_csv(cohorts, out)
+    return {"rows": int(len(cohorts)), "output": str(out)}
 
 
 def parse_args() -> argparse.Namespace:

@@ -63,8 +63,15 @@ def robust_pct_rank(series: pd.Series) -> pd.Series:
     return out.fillna(50.0)
 
 
-def assign_period(gaming_day: pd.Series) -> pd.Series:
-    days = pd.to_datetime(gaming_day, errors="coerce").dt.day
+def assign_period(gaming_day: pd.Series, start_day: Any | None = None) -> pd.Series:
+    normalized = pd.to_datetime(gaming_day, errors="coerce").dt.normalize()
+    if start_day is None:
+        days = normalized.dt.day
+    else:
+        start = pd.Timestamp(start_day)
+        if start.tzinfo is not None:
+            start = start.tz_convert("UTC").tz_localize(None)
+        days = (normalized - start.normalize()).dt.days + 1
     out = pd.Series("", index=gaming_day.index, dtype="object")
     for label, (start, end) in PERIODS.items():
         out.loc[days.between(start, end, inclusive="both")] = label

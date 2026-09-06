@@ -438,11 +438,11 @@ model_registry:
       output_schema_version: 1.0
       severity_default: info
       parameters:
-        start_offset_min: 1440
         gaming_day_end: now
-        limit_games: 500
-        limit_bets: 5000
-        json_limit: 25
+        observation_days: 21
+        limit_games: 0 # 0 means no extraction cap
+        limit_bets: 0 # 0 means no extraction cap
+        json_limit: 0 # 0 publishes every eligible player
         recommend_all: true
 
       schedule:
@@ -467,11 +467,11 @@ model_registry:
       output_schema_version: 1.0
       severity_default: high
       parameters:
-        start_offset_min: 1440
         gaming_day_end: now
-        limit_games: 500
-        limit_bets: 5000
-        json_limit: 25
+        observation_days: 21
+        limit_games: 0 # 0 means no extraction cap
+        limit_bets: 0 # 0 means no extraction cap
+        json_limit: 0 # 0 publishes every eligible player
         recommend_all: true
 
       schedule:
@@ -496,11 +496,11 @@ model_registry:
       output_schema_version: 1.0
       severity_default: medium
       parameters:
-        start_offset_min: 1440
         gaming_day_end: now
-        limit_games: 500
-        limit_bets: 5000
-        json_limit: 25
+        observation_days: 21
+        limit_games: 0 # 0 means no extraction cap
+        limit_bets: 0 # 0 means no extraction cap
+        json_limit: 0 # 0 publishes every eligible player
         recommend_all: true
 
       schedule:
