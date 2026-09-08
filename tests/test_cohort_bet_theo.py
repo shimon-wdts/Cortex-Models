@@ -72,12 +72,33 @@ def test_bet_theo_backfills_zero_session_theo() -> None:
         ]
     )
 
-    result = build_features_from_frames(sessions, bets, games)
+    progress_messages: list[str] = []
+    result = build_features_from_frames(sessions, bets, games, progress=progress_messages.append)
     total = result.player_total_features.iloc[0]
 
     assert total["theo"] == 8.5
     assert total["total_session_theo"] == 8.5
     assert total["latest_table_id"] == "7"
+
+    for phase in (
+        "prepare_sessions",
+        "prepare_games",
+        "normalize_bets",
+        "merge_game_context",
+        "merge_session_context",
+        "enrich_bets",
+        "sequence_sort",
+        "sequence_flags",
+        "player_worth",
+        "expand_total_period",
+        "aggregate_bets",
+        "aggregate_games",
+        "aggregate_sessions",
+        "combine_aggregates",
+        "score_features",
+    ):
+        assert any(f"phase={phase} status=started" in message for message in progress_messages)
+        assert any(f"phase={phase} status=completed" in message for message in progress_messages)
 
     tier_row = total.copy()
     tier_row["path_fit_score"] = 0.9

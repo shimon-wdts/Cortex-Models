@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 import pandas as pd
@@ -91,6 +93,26 @@ BEHAVIOR_TRAIT_LABELS = {
     "strong_game_preference": "Strong game preference",
     "game_flexible_player": "Game-flexible player",
 }
+
+ProgressCallback = Callable[[str], None]
+
+
+def report_feature_progress(
+    progress: ProgressCallback | None,
+    phase: str,
+    status: str,
+    *,
+    started_at: float | None = None,
+    rows: int | None = None,
+) -> None:
+    if progress is None:
+        return
+    fields = ["cohort_feature", f"phase={phase}", f"status={status}"]
+    if started_at is not None:
+        fields.append(f"duration_seconds={perf_counter() - started_at:.3f}")
+    if rows is not None:
+        fields.append(f"rows={rows}")
+    progress(" ".join(fields))
 
 
 def clamp_score_1_100(series: pd.Series) -> pd.Series:
@@ -187,8 +209,17 @@ def prepare_bets(path: Path, games: pd.DataFrame, sessions: pd.DataFrame) -> pd.
     return betg
 
 
-def add_bet_sequence_features(betg: pd.DataFrame) -> pd.DataFrame:
+def add_bet_sequence_features(
+    betg: pd.DataFrame,
+    progress: ProgressCallback | None = None,
+) -> pd.DataFrame:
+    started = perf_counter()
+    report_feature_progress(progress, "sequence_sort", "started", rows=len(betg))
     data = betg.sort_values(["PlayerId", "SessionId", "event_time", "BetId"], kind="mergesort").copy()
+    report_feature_progress(progress, "sequence_sort", "completed", started_at=started, rows=len(data))
+
+    started = perf_counter()
+    report_feature_progress(progress, "sequence_flags", "started", rows=len(data))
     data["prev_wager"] = data.groupby(["PlayerId", "SessionId"])["Wager"].shift(1)
     data["prev_casino_win"] = data.groupby(["PlayerId", "SessionId"])["CasinoWin"].shift(1)
     data["prev_is_loss"] = data["prev_casino_win"].gt(0).astype(int)
@@ -198,10 +229,17 @@ def add_bet_sequence_features(betg: pd.DataFrame) -> pd.DataFrame:
     data["post_loss_stop_flag"] = (
         data.groupby(["PlayerId", "SessionId"])["prev_is_loss"].shift(-1).isna() & data["CasinoWin"].gt(0)
     ).astype(int)
+    report_feature_progress(progress, "sequence_flags", "completed", started_at=started, rows=len(data))
     return data
 
 
-def build_player_period_features(sessions: pd.DataFrame, betg: pd.DataFrame) -> pd.DataFrame:
+def build_player_period_features(
+    sessions: pd.DataFrame,
+    betg: pd.DataFrame,
+    progress: ProgressCallback | None = None,
+) -> tuple[pd.DataFrame, float]:
+    started = perf_counter()
+    report_feature_progress(progress, "player_worth", "started", rows=len(betg))
     player_actual = betg.groupby("PlayerId", dropna=False)["CasinoWin"].sum()
     winners = int((player_actual < 0).sum())
     losers = int((player_actual > 0).sum())
@@ -213,12 +251,19 @@ def build_player_period_features(sessions: pd.DataFrame, betg: pd.DataFrame) -> 
             np.zeros(len(betg)),
         ]
     )
+    report_feature_progress(progress, "player_worth", "completed", started_at=started, rows=len(player_actual))
+
+    started = perf_counter()
+    report_feature_progress(progress, "expand_total_period", "started", rows=len(betg))
     all_bets = add_total_period(betg, "period")
     all_sessions = add_total_period(sessions, "period")
     all_bets["side_wager"] = np.where(all_bets["is_side_bet"].eq(1), all_bets["Wager"], 0.0)
     period_max_wager = all_bets.groupby(["period", "PlayerId"], dropna=False)["Wager"].transform("max")
     all_bets["near_ceiling_flag"] = (all_bets["Wager"].ge(period_max_wager * 0.80) & period_max_wager.gt(0)).astype(int)
+    report_feature_progress(progress, "expand_total_period", "completed", started_at=started, rows=len(all_bets))
 
+    started = perf_counter()
+    report_feature_progress(progress, "aggregate_bets", "started", rows=len(all_bets))
     bet_agg = (
         all_bets.groupby(["period", "PlayerId"], dropna=False)
         .agg(
@@ -243,7 +288,10 @@ def build_player_period_features(sessions: pd.DataFrame, betg: pd.DataFrame) -> 
     bet_agg["side_bet_rate"] = safe_divide(bet_agg["side_bet_count"], bet_agg["bet_count"]).fillna(0.0)
     bet_agg["side_handle_pct"] = safe_divide(bet_agg["side_handle"], bet_agg["turnover"]).fillna(0.0) * 100.0
     bet_agg["bet_spread_ratio"] = safe_divide(bet_agg["max_bet"] - bet_agg["min_bet"], bet_agg["avg_bet"]).fillna(0.0)
+    report_feature_progress(progress, "aggregate_bets", "completed", started_at=started, rows=len(bet_agg))
 
+    started = perf_counter()
+    report_feature_progress(progress, "aggregate_games", "started", rows=len(all_bets))
     game_agg = (
         all_bets.groupby(["period", "PlayerId", "GameType"], dropna=False)
         .agg(game_turnover=("Wager", "sum"), game_bets=("BetId", "count"))
@@ -266,7 +314,10 @@ def build_player_period_features(sessions: pd.DataFrame, betg: pd.DataFrame) -> 
         columns={"BACCARAT": "baccarat_engagement_pct", "BLACKJACK": "blackjack_engagement_pct"}
     )
     game_pivot["game_concentration_pct"] = game_pivot[["baccarat_engagement_pct", "blackjack_engagement_pct"]].max(axis=1)
+    report_feature_progress(progress, "aggregate_games", "completed", started_at=started, rows=len(game_agg))
 
+    started = perf_counter()
+    report_feature_progress(progress, "aggregate_sessions", "started", rows=len(all_sessions))
     sess_agg = (
         all_sessions.groupby(["period", "PlayerId"], dropna=False)
         .agg(
@@ -292,7 +343,10 @@ def build_player_period_features(sessions: pd.DataFrame, betg: pd.DataFrame) -> 
     sess_agg["session_continuation_rate"] = safe_divide(sess_agg["num_sessions"], sess_agg["active_days"]).fillna(0.0)
     sess_agg["loss_exit_rate"] = safe_divide(sess_agg["max_session_loss"], sess_agg["turnover"] if "turnover" in sess_agg else sess_agg["total_session_turnover"]).fillna(0.0)
     sess_agg["credit_line"] = sess_agg["cash_buy_in"]
+    report_feature_progress(progress, "aggregate_sessions", "completed", started_at=started, rows=len(sess_agg))
 
+    started = perf_counter()
+    report_feature_progress(progress, "combine_aggregates", "started", rows=len(bet_agg))
     features = bet_agg.merge(sess_agg, on=["period", "PlayerId"], how="outer")
     session_theo = pd.to_numeric(features["total_session_theo"], errors="coerce").fillna(0.0)
     bet_theo = pd.to_numeric(features["theo"], errors="coerce").fillna(0.0)
@@ -307,6 +361,10 @@ def build_player_period_features(sessions: pd.DataFrame, betg: pd.DataFrame) -> 
     features[numeric_cols] = features[numeric_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0)
     features["PlayerId"] = features["PlayerId"].astype(str)
     features["eligible"] = features["bet_count"].ge(MIN_BETS)
+    report_feature_progress(progress, "combine_aggregates", "completed", started_at=started, rows=len(features))
+
+    started = perf_counter()
+    report_feature_progress(progress, "score_features", "started", rows=len(features))
     features["worth_score"] = clamp_score_1_100(features.groupby("period")["worth_raw"].transform(robust_pct_rank))
     features["frequency_score"] = clamp_score_1_100(features.groupby("period")["active_days"].transform(robust_pct_rank))
     features["deal_hold_raw"] = 0.6 * safe_divide(features["theo"], features["turnover"]).fillna(0.0) + 0.4 * safe_divide(
@@ -349,6 +407,7 @@ def build_player_period_features(sessions: pd.DataFrame, betg: pd.DataFrame) -> 
     features["cohort_label"] = features["engagement_label"] + " / " + features["primary_behavior"]
     features = add_trend_features(features)
     features = features.rename(columns={"PlayerId": "player_id"})
+    report_feature_progress(progress, "score_features", "completed", started_at=started, rows=len(features))
     return features, winner_loser_ratio
 
 

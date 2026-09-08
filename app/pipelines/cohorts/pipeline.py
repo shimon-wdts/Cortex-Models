@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from prefect.exceptions import MissingContextError
+from prefect.logging import get_run_logger
 
 from app.models.pipeline_contracts import RunContext
 from app.pipelines.base import Pipeline
@@ -67,6 +69,7 @@ class CohortsPipeline(Pipeline):
             raw_bets=raw_data.get("bets", pd.DataFrame()),
             raw_games=raw_data.get("games", pd.DataFrame()),
             observation_start=query_parameters["gaming_day_start"],
+            progress=_feature_progress_callback(),
         )
 
     def run_inference(self, features: CohortsFeatureResult, context: RunContext) -> list[dict[str, Any]]:
@@ -125,6 +128,13 @@ def _gaming_day(value: Any) -> pd.Timestamp:
     if day.tzinfo is not None:
         day = day.tz_convert("UTC").tz_localize(None)
     return day.normalize()
+
+
+def _feature_progress_callback():
+    try:
+        return get_run_logger().info
+    except MissingContextError:
+        return None
 
 
 def _eligible_feature_result(features: CohortsFeatureResult) -> CohortsFeatureResult:
