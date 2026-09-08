@@ -22,7 +22,7 @@ SOURCE_BY_MODEL = {
 ENV = "prod"
 MODEL_VERSION = "10.2.0"
 APPLICATIONS = ["cortexFloor"]
-MIN_TIER_LIFT_GROWTH_PCT = 5.0
+MIN_TIER_LIFT_GROWTH_PCT = 0.0
 PLAYER_SCORE_WEIGHTS = {
     "worth": 0.35,
     "deal_hold": 0.35,

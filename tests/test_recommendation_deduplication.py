@@ -254,7 +254,7 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
         {
             "metric": "payload.result.modeled_impact.theo_growth_pct",
             "operator": ">=",
-            "value": 5.0,
+            "value": 0.0,
         }
     ]
     assert primary["rationale"] == (
@@ -384,7 +384,7 @@ def test_tier_lift_time_to_action_uses_visit_frequency() -> None:
         assert follow_up["time_to_action"] == {"unit": "Days", "value": follow_up_days}
 
 
-def test_tier_lift_exposes_five_percent_threshold_without_suppressing_output() -> None:
+def test_tier_lift_exposes_zero_percent_threshold_without_suppressing_output() -> None:
     event = build_tier_lift_insight(
         pd.Series(
             {
@@ -402,7 +402,7 @@ def test_tier_lift_exposes_five_percent_threshold_without_suppressing_output() -
         {
             "metric": "payload.result.modeled_impact.theo_growth_pct",
             "operator": ">=",
-            "value": 5.0,
+            "value": 0.0,
         }
     ]
 
