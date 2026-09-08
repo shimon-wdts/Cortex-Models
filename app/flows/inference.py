@@ -4,9 +4,10 @@ import datetime
 from typing import Any
 
 from prefect import flow, runtime, task
+from prefect.logging import get_run_logger
 
 from app.clients.postgres import PostgresQueryClient
-from app.models.pipeline_contracts import ExecutionMode, PipelineStep, RunContext, StepResult
+from app.models.pipeline_contracts import ExecutionMode, RunContext, StepResult
 from app.services.pipeline import (
     create_run_context,
     extract_data,
@@ -15,6 +16,8 @@ from app.services.pipeline import (
     run_inference,
 )
 from app.services.model_registry import get_model_registry
+
+COHORT_MODEL_NAMES = frozenset({"cohort", "cohort_tier_lift", "playerscore"})
 
 
 def generate_flow_name() -> str:
@@ -41,18 +44,34 @@ def extract_data_task(context: RunContext) -> dict[str, Any]:
     return extract_data(context, registry=registry, client=client)
 
 
+@task(name="extract-and-feature-engineering", retries=1, retry_delay_seconds=30)
+def cohort_extract_and_feature_task(context: RunContext) -> Any:
+    registry = get_model_registry()
+    postgres = registry.postgres
+    client = PostgresQueryClient(
+        postgres.get("replica_url", ""),
+        pool_size=postgres.get("pool_size", 1),
+        pool_pre_ping=postgres.get("pool_pre_ping", True),
+    )
+    raw_data = extract_data(context, registry=registry, client=client)
+    get_run_logger().info(
+        "cohort_handoff status=skipped reason=raw_frames_retained_in_process"
+    )
+    return generate_features(context, raw_data, registry=registry)
+
+
 @task(name="feature-engineering", retries=1, retry_delay_seconds=15)
 def feature_engineering_task(
     context: RunContext,
     raw_data: dict[str, Any] | list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+) -> Any:
     return generate_features(context, raw_data)
 
 
 @task(name="inference", retries=1, retry_delay_seconds=15)
 def inference_task(
     context: RunContext,
-    feature_records: any,
+    feature_records: Any,
 ) -> list[dict[str, Any]]:
     return run_inference(context, feature_records)
 
@@ -63,6 +82,10 @@ def publish_predictions_task(
     prediction_records: list[dict[str, Any]],
 ) -> StepResult:
     return publish_predictions(context, prediction_records)
+
+
+def uses_in_process_cohort_features(model_name: str) -> bool:
+    return model_name in COHORT_MODEL_NAMES
 
 @flow(
     name="cortex-model-pipeline",
@@ -85,8 +108,11 @@ def full_pipeline_flow(
         run_id=run_id,
         parameters=input_parameters,
     )
-    raw_data = extract_data_task(context)
-    feature_records = feature_engineering_task(context, raw_data)
+    if uses_in_process_cohort_features(resolved_model_name):
+        feature_records = cohort_extract_and_feature_task(context)
+    else:
+        raw_data = extract_data_task(context)
+        feature_records = feature_engineering_task(context, raw_data)
     prediction_records = inference_task(context, feature_records)
     result = publish_predictions_task(context, prediction_records)
     return result.model_dump(mode="json")
