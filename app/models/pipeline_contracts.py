@@ -36,6 +36,10 @@ class QueryConfig(BaseModel):
     sql: str
     params: dict[str, Any] = Field(default_factory=dict)
     df_columns: list[str] = Field(default_factory=list)
+    batch_source_query: str | None = None
+    batch_source_column: str | None = None
+    batch_param: str | None = None
+    deduplicate_on: list[str] = Field(default_factory=list)
 
 
 class ModelStoreConfig(BaseModel):

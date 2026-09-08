@@ -44,46 +44,60 @@ model_registry:
     key_field: player_id
 
   cohort_queries: &cohort_queries
-    - name: games
+    - name: eligible_players
       sql: |
-        SELECT
-          game_id AS "GameId",
-          game_start_dtm AS "GameStartDtm",
-          gaming_day AS "GamingDay",
-          game_type AS "GameType",
-          outcome AS "Outcome",
-          game_result AS "GameResult",
-          shoe_id AS "ShoeId",
-          shoe_game_count AS "ShoeGameCount",
-          table_id AS "TableId",
-          table_name AS "TableName",
-          pit_name AS "PitName",
-          gaming_area AS "GamingArea",
-          num_players AS "NumPlayers",
-          num_positions AS "NumPositions"
-        FROM t_game
-        WHERE gaming_day >= :gaming_day_start
-          AND gaming_day < :gaming_day_end_exclusive
-          AND game_id IS NOT NULL
-        ORDER BY gaming_day, game_start_dtm, game_id
-        LIMIT :limit_games
+        SELECT b.player_id AS "PlayerId"
+        FROM t_bet b
+        JOIN t_game g ON g.game_id = b.game_id
+        WHERE g.gaming_day >= :gaming_day_start
+          AND g.gaming_day < :gaming_day_end_exclusive
+          AND b.bet_id IS NOT NULL
+          AND b.session_id IS NOT NULL
+          AND b.player_id IS NOT NULL
+        GROUP BY b.player_id
+        HAVING COUNT(*) >= :minimum_bets
       params:
         gaming_day_start: "{{ gaming_day_start }}"
         gaming_day_end_exclusive: "{{ gaming_day_end_exclusive }}"
-        limit_games: "{{ limit_games }}"
+        minimum_bets: "{{ minimum_bets }}"
+      df_columns: ["PlayerId"]
+
+    - name: games
+      sql: |
+        SELECT DISTINCT
+          g.game_id AS "GameId",
+          g.game_start_dtm AS "GameStartDtm",
+          g.gaming_day AS "GamingDay",
+          g.game_type AS "GameType",
+          g.outcome AS "Outcome",
+          g.game_result AS "GameResult",
+          g.shoe_id AS "ShoeId",
+          g.shoe_game_count AS "ShoeGameCount",
+          g.table_id AS "TableId",
+          g.table_name AS "TableName",
+          g.pit_name AS "PitName",
+          g.gaming_area AS "GamingArea",
+          g.num_players AS "NumPlayers",
+          g.num_positions AS "NumPositions"
+        FROM t_game g
+        JOIN t_bet b ON b.game_id = g.game_id
+        WHERE g.gaming_day >= :gaming_day_start
+          AND g.gaming_day < :gaming_day_end_exclusive
+          AND g.game_id IS NOT NULL
+          AND b.player_id = ANY(:player_ids)
+          AND b.bet_id IS NOT NULL
+          AND b.session_id IS NOT NULL
+      params:
+        gaming_day_start: "{{ gaming_day_start }}"
+        gaming_day_end_exclusive: "{{ gaming_day_end_exclusive }}"
       df_columns: ["GameId", "GameStartDtm", "GamingDay", "GameType", "Outcome", "GameResult", "ShoeId", "ShoeGameCount", "TableId", "TableName", "PitName", "GamingArea", "NumPlayers", "NumPositions"]
+      batch_source_query: eligible_players
+      batch_source_column: PlayerId
+      batch_param: player_ids
+      deduplicate_on: ["GameId"]
 
     - name: bets
       sql: |
-        WITH selected_games AS (
-          SELECT game_id
-          FROM t_game
-          WHERE gaming_day >= :gaming_day_start
-            AND gaming_day < :gaming_day_end_exclusive
-            AND game_id IS NOT NULL
-          ORDER BY gaming_day, game_start_dtm, game_id
-          LIMIT :limit_games
-        )
         SELECT
           b.bet_id AS "BetId",
           b.game_id AS "GameId",
@@ -99,42 +113,23 @@ model_registry:
           b.status AS "Status",
           b.payout_complete_dtm AS "PayoutCompleteDtm"
         FROM t_bet b
-        JOIN selected_games g ON g.game_id = b.game_id
-        WHERE b.session_id IS NOT NULL
+        JOIN t_game g ON g.game_id = b.game_id
+        WHERE g.gaming_day >= :gaming_day_start
+          AND g.gaming_day < :gaming_day_end_exclusive
+          AND b.player_id = ANY(:player_ids)
+          AND b.bet_id IS NOT NULL
+          AND b.session_id IS NOT NULL
           AND b.player_id IS NOT NULL
-        ORDER BY b.game_id, b.bet_id
-        LIMIT :limit_bets
       params:
         gaming_day_start: "{{ gaming_day_start }}"
         gaming_day_end_exclusive: "{{ gaming_day_end_exclusive }}"
-        limit_games: "{{ limit_games }}"
-        limit_bets: "{{ limit_bets }}"
       df_columns: ["BetId", "GameId", "SessionId", "PlayerId", "TableId", "BetType", "TypeOfBet", "ShortBetNameEn", "Wager", "CasinoWin", "BetTheoWin", "Status", "PayoutCompleteDtm"]
+      batch_source_query: eligible_players
+      batch_source_column: PlayerId
+      batch_param: player_ids
 
     - name: sessions
       sql: |
-        WITH selected_games AS (
-          SELECT game_id
-          FROM t_game
-          WHERE gaming_day >= :gaming_day_start
-            AND gaming_day < :gaming_day_end_exclusive
-            AND game_id IS NOT NULL
-          ORDER BY gaming_day, game_start_dtm, game_id
-          LIMIT :limit_games
-        ),
-        selected_bets AS (
-          SELECT b.session_id, b.player_id, b.game_id, b.bet_id
-          FROM t_bet b
-          JOIN selected_games g ON g.game_id = b.game_id
-          WHERE b.session_id IS NOT NULL
-            AND b.player_id IS NOT NULL
-          ORDER BY b.game_id, b.bet_id
-          LIMIT :limit_bets
-        ),
-        selected_sessions AS (
-          SELECT DISTINCT session_id, player_id
-          FROM selected_bets
-        )
         SELECT DISTINCT
           s.session_id AS "SessionId",
           s.table_id AS "TableId",
@@ -156,16 +151,27 @@ model_registry:
           s.gaming_area AS "GamingArea",
           s.table_name AS "TableName"
         FROM t_session s
-        JOIN selected_sessions ss
-          ON ss.session_id = s.session_id
-         AND ss.player_id = s.player_id
-        ORDER BY s.gaming_day, s.session_start_dtm, s.session_id
+        WHERE s.gaming_day >= :gaming_day_start
+          AND s.gaming_day < :gaming_day_end_exclusive
+          AND s.player_id = ANY(:player_ids)
+          AND EXISTS (
+            SELECT 1
+            FROM t_bet b
+            JOIN t_game g ON g.game_id = b.game_id
+            WHERE b.session_id = s.session_id
+              AND b.player_id = s.player_id
+              AND g.gaming_day >= :gaming_day_start
+              AND g.gaming_day < :gaming_day_end_exclusive
+              AND b.bet_id IS NOT NULL
+          )
       params:
         gaming_day_start: "{{ gaming_day_start }}"
         gaming_day_end_exclusive: "{{ gaming_day_end_exclusive }}"
-        limit_games: "{{ limit_games }}"
-        limit_bets: "{{ limit_bets }}"
       df_columns: ["SessionId", "TableId", "PlayerId", "SessionStartDtm", "SessionEndDtm", "FirstWagerGameStartDtm", "GamingDay", "NumBets", "NumGamesElapsed", "NumGamesWithWager", "Turnover", "TheoWin", "PlayerWin", "Buyin", "AdjustedTheoWin", "GameType", "PitName", "GamingArea", "TableName"]
+      batch_source_query: eligible_players
+      batch_source_column: PlayerId
+      batch_param: player_ids
+      deduplicate_on: ["SessionId", "PlayerId"]
 
   models:
     predicted_fills:
@@ -440,8 +446,9 @@ model_registry:
       parameters:
         gaming_day_end: now
         observation_days: 21
-        limit_games: 0 # 0 means no extraction cap
-        limit_bets: 0 # 0 means no extraction cap
+        minimum_bets: 30
+        extract_batch_size: 500
+        extract_workers: 4
         json_limit: 0 # 0 publishes every eligible player
         recommend_all: true
 
@@ -469,8 +476,9 @@ model_registry:
       parameters:
         gaming_day_end: now
         observation_days: 21
-        limit_games: 0 # 0 means no extraction cap
-        limit_bets: 0 # 0 means no extraction cap
+        minimum_bets: 30
+        extract_batch_size: 500
+        extract_workers: 4
         json_limit: 0 # 0 publishes every eligible player
         recommend_all: true
 
@@ -498,8 +506,9 @@ model_registry:
       parameters:
         gaming_day_end: now
         observation_days: 21
-        limit_games: 0 # 0 means no extraction cap
-        limit_bets: 0 # 0 means no extraction cap
+        minimum_bets: 30
+        extract_batch_size: 500
+        extract_workers: 4
         json_limit: 0 # 0 publishes every eligible player
         recommend_all: true
 

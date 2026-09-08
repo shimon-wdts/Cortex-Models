@@ -39,8 +39,9 @@ class CohortsPipeline(Pipeline):
         prepared["gaming_day_start"] = start_day.date()
         prepared["gaming_day_end_exclusive"] = (end_day + timedelta(days=1)).date()
         prepared["observation_days"] = int((end_day - start_day).days) + 1
-        prepared["limit_games"] = _optional_limit(prepared.get("limit_games"))
-        prepared["limit_bets"] = _optional_limit(prepared.get("limit_bets"))
+        prepared["minimum_bets"] = MIN_BETS
+        prepared["extract_batch_size"] = max(1, int(prepared.get("extract_batch_size", 500)))
+        prepared["extract_workers"] = max(1, int(prepared.get("extract_workers", 4)))
         prepared["json_limit"] = int(prepared.get("json_limit", 0))
         prepared["recommend_all"] = _as_bool(prepared.get("recommend_all", True))
         prepared["source_mode"] = source_mode
@@ -124,13 +125,6 @@ def _gaming_day(value: Any) -> pd.Timestamp:
     if day.tzinfo is not None:
         day = day.tz_convert("UTC").tz_localize(None)
     return day.normalize()
-
-
-def _optional_limit(value: Any) -> int | None:
-    if value is None or str(value).strip() == "":
-        return None
-    limit = int(value)
-    return limit if limit > 0 else None
 
 
 def _eligible_feature_result(features: CohortsFeatureResult) -> CohortsFeatureResult:

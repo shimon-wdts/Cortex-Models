@@ -15,14 +15,15 @@ from app.pipelines.cohorts.utils import assign_period
 MODEL_DIR = Path(__file__).resolve().parents[1] / "app" / "models_store" / "cohorts"
 
 
-def test_query_params_cover_uncapped_rolling_21_day_window() -> None:
+def test_query_params_cover_eligible_players_in_uncapped_rolling_window() -> None:
     params = CohortsPipeline("cohort").get_query_params({"gaming_day_end": "2026-09-06"})
 
     assert str(params["gaming_day_start"]) == "2026-08-17"
     assert str(params["gaming_day_end_exclusive"]) == "2026-09-07"
     assert params["observation_days"] == 21
-    assert params["limit_games"] is None
-    assert params["limit_bets"] is None
+    assert params["minimum_bets"] == 30
+    assert params["extract_batch_size"] == 500
+    assert params["extract_workers"] == 4
     assert params["json_limit"] == 0
 
 
