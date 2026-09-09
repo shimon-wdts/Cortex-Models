@@ -812,13 +812,36 @@ def build_feature_dataset(
     builder = LiveFeatureBuilder()
     records: list[Lucky6FeatureRecord] = []
     skipped_rows = 0
+    pending_by_shoe: dict[str, tuple[dict[str, str], pd.Timestamp, dict[str, Any]]] = {}
 
     for row in rows:
-        event_ts = to_utc_timestamp(row.get("PayoutCompleteDtm")) or to_utc_timestamp(row.get("GameStartDtm"))
+        event_ts = to_utc_timestamp(row.get("PayoutCompleteDtm"))
         game_start_ts = to_utc_timestamp(row.get("GameStartDtm"))
-        should_publish = event_ts is not None and start_ts <= event_ts <= end_ts
-
         shoe_key = str(row.get("ShoeId", "") or "")
+
+        pending = pending_by_shoe.get(shoe_key)
+        if pending is not None and game_start_ts is not None:
+            source_row, source_event_ts, built = pending
+            ready_ts = max(source_event_ts, game_start_ts)
+            if start_ts <= ready_ts <= end_ts and _is_next_game(source_row, row, built):
+                skip_reason = built.get("skip_reason")
+                records.append(
+                    _record_for_target_game(
+                        row,
+                        source_event_ts,
+                        game_start_ts,
+                        hand_id_mode,
+                        None if skip_reason else full_feature_row(built),
+                        str(skip_reason) if skip_reason else None,
+                        built,
+                    )
+                )
+
+        # An unfinished game supplies the target game ID for the previous hand's
+        # prediction, but must not be applied to the card-history state itself.
+        if event_ts is None or event_ts > end_ts:
+            continue
+
         shoe_backup = copy.deepcopy(builder.states.get(shoe_key)) if shoe_key in builder.states else None
         built: dict[str, Any]
         try:
@@ -831,28 +854,13 @@ def build_feature_dataset(
             else:
                 builder.states[shoe_key] = shoe_backup
                 builder.state = shoe_backup
-            if should_publish:
-                records.append(_record_from_row(row, event_ts, game_start_ts, hand_id_mode, None, f"feature_error: {exc}"))
+            pending_by_shoe[shoe_key] = (row, event_ts, {"skip_reason": f"feature_error: {exc}"})
             continue
 
         skip_reason = built.get("skip_reason")
         if skip_reason:
             skipped_rows += 1
-        if not should_publish:
-            continue
-
-        feature_row = None if skip_reason else full_feature_row(built)
-        records.append(
-            _record_from_row(
-                row,
-                event_ts,
-                game_start_ts,
-                hand_id_mode,
-                feature_row,
-                str(skip_reason) if skip_reason else None,
-                built,
-            )
-        )
+        pending_by_shoe[shoe_key] = (row, event_ts, built)
 
     return Lucky6FeatureResult(
         records=records,
@@ -863,8 +871,23 @@ def build_feature_dataset(
     )
 
 
-def _record_from_row(
-    row: dict[str, str],
+def _is_next_game(
+    source_row: Mapping[str, Any],
+    target_row: Mapping[str, Any],
+    built: Mapping[str, Any],
+) -> bool:
+    expected_hand_id = _safe_optional_int(built.get("next_hand_id"))
+    target_hand_id = _safe_optional_int(target_row.get("ShoeGameCount"))
+    return (
+        bool(str(target_row.get("GameId", "")).strip())
+        and str(source_row.get("ShoeId", "")) == str(target_row.get("ShoeId", ""))
+        and expected_hand_id is not None
+        and target_hand_id == expected_hand_id
+    )
+
+
+def _record_for_target_game(
+    target_row: dict[str, str],
     event_ts: pd.Timestamp | None,
     game_start_ts: pd.Timestamp | None,
     hand_id_mode: str,
@@ -874,24 +897,24 @@ def _record_from_row(
 ) -> Lucky6FeatureRecord:
     built = built or {}
     hand_key = "next_hand_id" if hand_id_mode == "next" else "hand_id"
-    hand_id = built.get(hand_key, row.get("ShoeGameCount", ""))
+    hand_id = built.get(hand_key, target_row.get("ShoeGameCount", ""))
     return Lucky6FeatureRecord(
         hand_id=hand_id,
-        shoe_id=str(built.get("shoe_id", row.get("ShoeId", ""))),
-        game_id=str(row.get("GameId", "")),
+        shoe_id=str(built.get("shoe_id", target_row.get("ShoeId", ""))),
+        game_id=str(target_row.get("GameId", "")),
         event_ts=event_ts,
         game_start_ts=game_start_ts,
-        gaming_day=str(row.get("GamingDay", "")),
-        table_id=str(row.get("TableId", "")),
-        table_name=str(row.get("TableName", "")),
-        pit_name=str(row.get("PitName", "")),
-        gaming_area=str(row.get("GamingArea", "")),
+        gaming_day=str(target_row.get("GamingDay", "")),
+        table_id=str(target_row.get("TableId", "")),
+        table_name=str(target_row.get("TableName", "")),
+        pit_name=str(target_row.get("PitName", "")),
+        gaming_area=str(target_row.get("GamingArea", "")),
         feature_row=feature_row,
         skip_reason=skip_reason,
         cards_remaining=_safe_optional_float(built.get("cards_remaining")),
         decks_remaining=_safe_optional_float(built.get("decks_remaining")),
         history_size=_safe_optional_int(built.get("history_size")),
-        source_row=row,
+        source_row=target_row,
     )
 
 

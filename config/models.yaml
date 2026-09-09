@@ -360,11 +360,12 @@ model_registry:
             WITH active_shoes AS (
               SELECT DISTINCT shoe_id
               FROM t_game
-              WHERE payout_complete_dtm >= :start_ts
-                AND payout_complete_dtm <= :end_ts
+              WHERE (
+                  (payout_complete_dtm >= :start_ts AND payout_complete_dtm <= :end_ts)
+                  OR (game_start_dtm >= :start_ts AND game_start_dtm <= :end_ts)
+                )
                 AND shoe_id IS NOT NULL
                 AND game_id IS NOT NULL
-                AND payout_complete_dtm IS NOT NULL
                 AND (
                   UPPER(COALESCE(game_type, '')) LIKE '%BACCARAT%'
                   OR UPPER(COALESCE(game_variant, '')) LIKE '%BACCARAT%'
@@ -395,7 +396,7 @@ model_registry:
               g.game_status AS "GameStatus"
             FROM t_game g
             JOIN active_shoes active ON active.shoe_id = g.shoe_id
-            WHERE g.payout_complete_dtm <= :end_ts
+            WHERE g.game_start_dtm <= :end_ts
               AND g.game_id IS NOT NULL
               AND g.shoe_id IS NOT NULL
               AND (
