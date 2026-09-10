@@ -338,7 +338,12 @@ If the configured key field matches an entity type, the publisher uses that enti
 `full_pipeline_flow` is the main deployment flow:
 
 ```text
-cortex-model-pipeline
+cortex-model-pipeline (cohort, playerscore, cohort_tier_lift)
+  extract-and-feature-engineering
+  inference
+  publish-predictions
+
+cortex-model-pipeline (other models)
   extract-data
   feature-engineering
   inference
@@ -348,8 +353,8 @@ cortex-model-pipeline
 Flow behavior:
 
 - `create_run_context` resolves model name, execution mode, runtime parameters, query parameters, and model-store path.
-- `extract-data` reads configured SQL queries from the operational Postgres replica.
-- `feature-engineering` converts raw frames into model-ready features.
+- `extract-and-feature-engineering` keeps the large raw cohort frames within one task and returns only aggregated player features.
+- Other models retain separate `extract-data` and `feature-engineering` tasks.
 - `inference` loads or runs the model-specific inference path.
 - `publish-predictions` publishes final records to Kafka and records publish metrics.
 
