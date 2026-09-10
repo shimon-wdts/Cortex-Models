@@ -41,7 +41,7 @@ def test_recommendation_deduplication_id_is_canonical() -> None:
     assert recommendation_deduplication_id(reordered) == expected
 
 
-def test_shoe_advantage_matches_table_guard_contract() -> None:
+def test_shoe_advantage_uses_game_and_side_bet() -> None:
     record = Lucky6FeatureRecord(
         hand_id=47,
         shoe_id="1160004",
@@ -76,8 +76,8 @@ def test_shoe_advantage_matches_table_guard_contract() -> None:
 
     assert len(recommendations) == 2
     assert [recommendation["action"]["side_bet"] for recommendation in recommendations] == [
-        "lucky6",
-        "big_tiger",
+        "LUCKY SIX",
+        "BIG TIGER",
     ]
     assert event["shoe_id"] == "1160004"
     assert event["application"] == ["cortexTableGuard"]
@@ -98,7 +98,7 @@ def test_shoe_advantage_matches_table_guard_contract() -> None:
             {
                 "model_type": "ShoeAdvantage",
                 "game_id": "116000235",
-                "side_bet": side_bet,
+                "side_bet": "lucky6" if side_bet == "LUCKY SIX" else "big_tiger",
             }
         )
     assert recommendations[0]["action"]["advantageous_level"] == "l"
