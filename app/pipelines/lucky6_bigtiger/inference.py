@@ -314,7 +314,10 @@ def _prediction_payload(
         action = {
             "type": "review_side_bet_advantage",
             "game_type": "baccarat",
-            "side_bet": side_bet_label,
+            # TableGuard derives its lookup keys from the configured side-bet
+            # names and expects the normalized Kafka values (for example,
+            # LUCKY6 -> lucky6 and BIG TIGER -> big_tiger).
+            "side_bet": side_bet_key,
             "game_id": str(record.game_id),
             "shoe_id": str(record.shoe_id),
             "table_id": str(record.table_id),

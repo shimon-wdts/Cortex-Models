@@ -41,7 +41,7 @@ def test_recommendation_deduplication_id_is_canonical() -> None:
     assert recommendation_deduplication_id(reordered) == expected
 
 
-def test_shoe_advantage_uses_game_and_side_bet() -> None:
+def test_shoe_advantage_matches_table_guard_contract() -> None:
     record = Lucky6FeatureRecord(
         hand_id=47,
         shoe_id="1160004",
@@ -76,9 +76,16 @@ def test_shoe_advantage_uses_game_and_side_bet() -> None:
 
     assert len(recommendations) == 2
     assert [recommendation["action"]["side_bet"] for recommendation in recommendations] == [
-        "LUCKY SIX",
-        "BIG TIGER",
+        "lucky6",
+        "big_tiger",
     ]
+    assert event["shoe_id"] == "1160004"
+    assert event["application"] == ["cortexTableGuard"]
+    assert {entity["type"]: entity["id"] for entity in event["entity"]} == {
+        "SHOE": "1160004",
+        "GAME": "116000235",
+        "TABLE": "71",
+    }
     assert event["payload"]["presentation"]["chart"]["x_labels"] == ["LUCKY SIX", "BIG TIGER"]
     for recommendation in recommendations:
         assert_sha_only(recommendation)
@@ -91,7 +98,7 @@ def test_shoe_advantage_uses_game_and_side_bet() -> None:
             {
                 "model_type": "ShoeAdvantage",
                 "game_id": "116000235",
-                "side_bet": "lucky6" if side_bet == "LUCKY SIX" else "big_tiger",
+                "side_bet": side_bet,
             }
         )
     assert recommendations[0]["action"]["advantageous_level"] == "l"
