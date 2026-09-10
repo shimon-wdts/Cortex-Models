@@ -8,6 +8,7 @@ from app.inference.recommendation_contract import recommendation_deduplication_i
 from app.models.pipeline_contracts import ExecutionMode, RunContext
 from app.pipelines.cohorts.insights_contract import (
     BETTING_STYLE_LABELS,
+    PLAYER_PROFILE_DEDUPLICATION_GENERATION,
     betting_style,
     build_cohort_insight,
     build_player_score_insight,
@@ -174,8 +175,32 @@ def test_player_cohort_uses_player_action_and_cohort() -> None:
             "player_id": "1000214",
             "action_type": "review_cohort_assignment",
             "cohort": "High Value",
+            "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
         }
     )
+
+
+def test_player_profile_generation_changes_the_previous_deduplication_id() -> None:
+    event = build_cohort_insight(
+        pd.Series(
+            {
+                "player_id": "1000214",
+                "cohort_model_label": "High Value",
+            }
+        )
+    )
+    refreshed_id = event["payload"]["presentation"]["recommendations"][0]["deduplication_id"]
+    previous_id = recommendation_deduplication_id(
+        {
+            "model_type": "PlayerCohort",
+            "player_id": "1000214",
+            "action_type": "review_cohort_assignment",
+            "cohort": "High Value",
+        }
+    )
+
+    assert refreshed_id != previous_id
+    assert re.fullmatch(r"[0-9a-f]{64}", refreshed_id)
 
 
 def test_tier_lift_includes_specific_recommendation_target() -> None:
@@ -210,6 +235,7 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
             "recommended_path": "Invite to higher-limit path",
             "target_cohort": "VIP",
             "recommendation_target": "Higher-limit path",
+            "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
         }
     )
     assert primary["modeled_impact"]["current_theo"] == 333.33
@@ -294,6 +320,7 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
             "target_cohort": "VIP",
             "recommendation_target": "Higher-limit path",
             "trigger": "primary_action_not_redeemed",
+            "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
         }
     )
 
@@ -514,6 +541,7 @@ def test_player_performance_includes_displayed_score() -> None:
             "player_id": "1000214",
             "action_type": "review_player_score",
             "player_score": "73.4",
+            "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
         }
     )
 

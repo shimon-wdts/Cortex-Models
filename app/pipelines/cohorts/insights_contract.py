@@ -23,6 +23,9 @@ ENV = "prod"
 MODEL_VERSION = "10.2.0"
 APPLICATIONS = ["cortexFloor"]
 MIN_TIER_LIFT_GROWTH_PCT = 0.0
+# One-time namespace bump so UAT republishes the refreshed player profiles.
+# Keep this value stable after deployment so subsequent runs deduplicate normally.
+PLAYER_PROFILE_DEDUPLICATION_GENERATION = "did-2026-09-10"
 PLAYER_SCORE_WEIGHTS = {
     "worth": 0.35,
     "deal_hold": 0.35,
@@ -766,6 +769,7 @@ def build_cohort_insight(row: pd.Series) -> dict[str, Any]:
                 "player_id": player_id,
                 "action_type": "review_cohort_assignment",
                 "cohort": cohort_label,
+                "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
             }
         ),
     }
@@ -1084,6 +1088,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
                 "recommended_path": path,
                 "target_cohort": target_label,
                 "recommendation_target": recommendation_target,
+                "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
             }
         ),
     }
@@ -1124,6 +1129,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
                 "target_cohort": target_label,
                 "recommendation_target": recommendation_target,
                 "trigger": "primary_action_not_redeemed",
+                "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
             }
         ),
     }
@@ -1209,6 +1215,7 @@ def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
                 "player_id": player_id,
                 "action_type": "review_player_score",
                 "player_score": f"{score:.1f}",
+                "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
             }
         ),
     }
