@@ -7,6 +7,7 @@ import pandas as pd
 from app.inference.recommendation_contract import recommendation_deduplication_id
 from app.models.pipeline_contracts import ExecutionMode, RunContext
 from app.pipelines.cohorts.insights_contract import (
+    BETTING_STYLE_LABELS,
     betting_style,
     build_cohort_insight,
     build_player_score_insight,
@@ -546,3 +547,29 @@ def test_betting_style_uses_product_taxonomy() -> None:
             "risk_volatility": "Medium Risk",
             "limit_readiness_score": 45.0,
         }
+
+
+def test_betting_style_accepts_canonical_product_labels() -> None:
+    for label in BETTING_STYLE_LABELS:
+        style = betting_style(pd.Series({"primary_behavior": label}))
+
+        assert style["label"] == label
+
+
+def test_all_cohort_family_outputs_use_closed_betting_style_taxonomy() -> None:
+    builders = (build_cohort_insight, build_tier_lift_insight, build_player_score_insight)
+    rows = [
+        {"primary_behavior": "Balanced"},
+        {"primary_behavior": "Progressive"},
+        {"primary_behavior": "Side_Bet_Heavy"},
+        {"primary_behavior": "Volatile"},
+        {"primary_behavior": "Risk-Wagerer"},
+        {"primary_behavior": "Future unrecognized behavior"},
+    ]
+
+    for builder in builders:
+        for values in rows:
+            event = builder(pd.Series({"player_id": "1000214", **values}))
+            label = event["payload"]["result"]["betting_style"]["label"]
+
+            assert label in BETTING_STYLE_LABELS

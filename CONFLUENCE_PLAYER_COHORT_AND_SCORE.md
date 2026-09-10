@@ -703,7 +703,7 @@ The model suite produces outputs for analytics, product, and operator review. Th
 | `primary_behavior` | The most important behavior characteristic to show for the player. |
 | `secondary_behaviors` | Additional behavior characteristics, typically top-ranked traits after the primary behavior. |
 | `characteristics` | Full scored set of behavior traits and prevalence-style context. |
-| `betting_style` | Plain-English summary of game preference, side-bet intensity, volatility, and limit readiness. |
+| `betting_style` | Plain-English summary of game preference, side-bet intensity, volatility, and limit readiness. Its `label` is always one of `Stable`, `Progressive`, `Side-Bet Heavy`, `Volatile`, or `Risk Wagerer`. |
 
 ### 15.5 Tier Lift Recommendation Fields
 

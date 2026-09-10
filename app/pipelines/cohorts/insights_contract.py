@@ -29,12 +29,31 @@ PLAYER_SCORE_WEIGHTS = {
     "frequency": 0.20,
     "volatility": 0.10,
 }
+BETTING_STYLE_STABLE = "Stable"
+BETTING_STYLE_PROGRESSIVE = "Progressive"
+BETTING_STYLE_SIDE_BET_HEAVY = "Side-Bet Heavy"
+BETTING_STYLE_VOLATILE = "Volatile"
+BETTING_STYLE_RISK_WAGERER = "Risk Wagerer"
+BETTING_STYLE_LABELS = (
+    BETTING_STYLE_STABLE,
+    BETTING_STYLE_PROGRESSIVE,
+    BETTING_STYLE_SIDE_BET_HEAVY,
+    BETTING_STYLE_VOLATILE,
+    BETTING_STYLE_RISK_WAGERER,
+)
+BETTING_STYLE_LABEL_SET = frozenset(BETTING_STYLE_LABELS)
 BETTING_STYLE_BY_PRIMARY_BEHAVIOR = {
-    "balanced": "Stable",
-    "engaged": "Progressive",
-    "side bet heavy": "Side-Bet Heavy",
-    "high volatility": "Volatile",
-    "chases losses": "Risk Wagerer",
+    # Legacy feature labels.
+    "balanced": BETTING_STYLE_STABLE,
+    "engaged": BETTING_STYLE_PROGRESSIVE,
+    "side bet heavy": BETTING_STYLE_SIDE_BET_HEAVY,
+    "high volatility": BETTING_STYLE_VOLATILE,
+    "chases losses": BETTING_STYLE_RISK_WAGERER,
+    # Product labels, for callers that already use the canonical taxonomy.
+    "stable": BETTING_STYLE_STABLE,
+    "progressive": BETTING_STYLE_PROGRESSIVE,
+    "volatile": BETTING_STYLE_VOLATILE,
+    "risk wagerer": BETTING_STYLE_RISK_WAGERER,
 }
 TIER_LIFT_RATIONALE_TEMPLATES = {
     "Protect momentum after losses": (
@@ -588,22 +607,29 @@ def betting_style(row: pd.Series | None) -> dict[str, Any]:
     side_bet_intensity = safe_str(row.get("side_bet_intensity"), "Unknown")
     risk_label = safe_str(row.get("risk_volatility_label"), "Unknown")
     limit_readiness = first_score_0_100(row.get("pred_limit_path_readiness_prob"), row.get("stretch_capacity_score"))
-    primary_behavior = safe_str(row.get("primary_behavior")).lower()
+    primary_behavior = " ".join(
+        safe_str(row.get("primary_behavior")).lower().replace("-", " ").replace("_", " ").split()
+    )
     label = BETTING_STYLE_BY_PRIMARY_BEHAVIOR.get(primary_behavior)
     if label is None:
         chase_rate = safe_float(row.get("chase_rate"), 0.0) or 0.0
         side_bet_rate = safe_float(row.get("side_bet_rate"), 0.0) or 0.0
         volatility = score_0_100(row.get("volatility_score_behavior"), 0.0) or 0.0
         if chase_rate >= 0.20:
-            label = "Risk Wagerer"
+            label = BETTING_STYLE_RISK_WAGERER
         elif side_bet_intensity.lower() == "high" or side_bet_rate >= 0.35:
-            label = "Side-Bet Heavy"
+            label = BETTING_STYLE_SIDE_BET_HEAVY
         elif risk_label.lower() == "high risk" or volatility >= 75:
-            label = "Volatile"
+            label = BETTING_STYLE_VOLATILE
         elif (limit_readiness or 0.0) >= 55:
-            label = "Progressive"
+            label = BETTING_STYLE_PROGRESSIVE
         else:
-            label = "Stable"
+            label = BETTING_STYLE_STABLE
+
+    # Keep the public contract closed even if a new upstream behavior label is
+    # introduced without a corresponding product-taxonomy mapping.
+    if label not in BETTING_STYLE_LABEL_SET:
+        label = BETTING_STYLE_STABLE
 
     return {
         "label": label,
