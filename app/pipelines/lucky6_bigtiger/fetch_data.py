@@ -94,15 +94,20 @@ def normalize_t_game_rows(rows: pd.DataFrame) -> list[dict[str, str]]:
     if rows is None or rows.empty:
         return []
 
-    fallback_by_shoe: dict[str, int] = {}
+    fallback_by_shoe: dict[tuple[str, str, str], int] = {}
     normalized: list[dict[str, str]] = []
     for raw in rows.to_dict(orient="records"):
         raw_shoe = str(first_present(raw, CANONICAL_ALIASES["ShoeId"]) or "")
-        fallback_by_shoe[raw_shoe] = fallback_by_shoe.get(raw_shoe, 0) + 1
-        normalized.append(normalize_row(raw, fallback_by_shoe[raw_shoe]))
+        raw_gaming_day = str(first_present(raw, CANONICAL_ALIASES["GamingDay"]) or "")
+        raw_table = str(first_present(raw, CANONICAL_ALIASES["TableId"]) or "")
+        shoe_key = (raw_gaming_day, raw_table, raw_shoe)
+        fallback_by_shoe[shoe_key] = fallback_by_shoe.get(shoe_key, 0) + 1
+        normalized.append(normalize_row(raw, fallback_by_shoe[shoe_key]))
 
     normalized.sort(
         key=lambda row: (
+            str(row.get("GamingDay") or ""),
+            str(row.get("TableId") or ""),
             str(row.get("ShoeId") or ""),
             safe_int(row.get("ShoeGameCount"), 10**9),
             str(row.get("GameStartDtm") or ""),

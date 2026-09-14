@@ -11,11 +11,15 @@ def _game(
     hand: int,
     start: str,
     payout: str = "",
+    *,
+    shoe_id: str = "shoe-1",
+    gaming_day: str = "2026-09-09",
+    table_id: str = "71",
 ) -> dict[str, str]:
     completed = bool(payout)
     return {
         "GameId": game_id,
-        "ShoeId": "shoe-1",
+        "ShoeId": shoe_id,
         "ShoeGameCount": str(hand),
         "CardP1": "A" if completed else "",
         "CardP2": "2" if completed else "",
@@ -28,8 +32,8 @@ def _game(
         "Outcome": "BANKER" if completed else "",
         "GameStartDtm": start,
         "PayoutCompleteDtm": payout,
-        "GamingDay": "2026-09-09",
-        "TableId": "71",
+        "GamingDay": gaming_day,
+        "TableId": table_id,
         "TableName": "BA0071",
         "PitName": "Baccarat",
         "GamingArea": "Main Floor",
@@ -94,3 +98,33 @@ def test_nonconsecutive_game_is_not_mislabeled() -> None:
     result = _build(rows, "2026-09-09T10:00:00Z", "2026-09-09T10:05:00Z")
 
     assert result.records == []
+
+
+def test_reused_shoe_id_is_isolated_by_gaming_day_and_table() -> None:
+    rows = [
+        _game(
+            "old-game-1",
+            1,
+            "2026-09-08T10:00:00Z",
+            "2026-09-08T10:01:00Z",
+            gaming_day="2026-09-08",
+        ),
+        _game("old-game-2", 2, "2026-09-08T10:02:00Z", gaming_day="2026-09-08"),
+        _game("table-71-game-1", 1, "2026-09-09T10:00:00Z", "2026-09-09T10:01:00Z"),
+        _game("table-71-game-2", 2, "2026-09-09T10:02:00Z"),
+        _game(
+            "table-72-game-1",
+            1,
+            "2026-09-09T10:00:00Z",
+            "2026-09-09T10:01:00Z",
+            table_id="72",
+        ),
+        _game("table-72-game-2", 2, "2026-09-09T10:02:00Z", table_id="72"),
+    ]
+
+    result = _build(rows, "2026-09-09T00:00:00Z", "2026-09-09T23:59:59Z")
+
+    assert [record.game_id for record in result.records] == ["table-71-game-2", "table-72-game-2"]
+    assert [record.table_id for record in result.records] == ["71", "72"]
+    assert [record.shoe_id for record in result.records] == ["shoe-1", "shoe-1"]
+    assert [record.history_size for record in result.records] == [1, 1]

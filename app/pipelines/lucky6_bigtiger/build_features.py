@@ -459,7 +459,7 @@ class LiveFeatureBuilder:
 
     def __init__(self, seq_len: int = SEQ_LEN) -> None:
         self.seq_len = seq_len
-        self.states: Dict[str, ShoeState] = {}
+        self.states: Dict[tuple[str, str, str], ShoeState] = {}
         self.state = ShoeState()
 
     def process_completed_row(self, row: Dict[str, str]) -> Dict[str, object]:
@@ -467,12 +467,13 @@ class LiveFeatureBuilder:
         if not shoe_id:
             raise ValueError("Row is missing ShoeId")
 
-        shoe_reset = shoe_id not in self.states
+        shoe_key = _shoe_instance_key(row)
+        shoe_reset = shoe_key not in self.states
         if shoe_reset:
             state = ShoeState()
             state.reset(shoe_id)
-            self.states[shoe_id] = state
-        self.state = self.states[shoe_id]
+            self.states[shoe_key] = state
+        self.state = self.states[shoe_key]
 
         hand_id = _safe_int(row.get("ShoeGameCount"), self.state.completed_hands + 1)
         next_hand_id = hand_id + 1
@@ -812,12 +813,12 @@ def build_feature_dataset(
     builder = LiveFeatureBuilder()
     records: list[Lucky6FeatureRecord] = []
     skipped_rows = 0
-    pending_by_shoe: dict[str, tuple[dict[str, str], pd.Timestamp, dict[str, Any]]] = {}
+    pending_by_shoe: dict[tuple[str, str, str], tuple[dict[str, str], pd.Timestamp, dict[str, Any]]] = {}
 
     for row in rows:
         event_ts = to_utc_timestamp(row.get("PayoutCompleteDtm"))
         game_start_ts = to_utc_timestamp(row.get("GameStartDtm"))
-        shoe_key = str(row.get("ShoeId", "") or "")
+        shoe_key = _shoe_instance_key(row)
 
         pending = pending_by_shoe.get(shoe_key)
         if pending is not None and game_start_ts is not None:
@@ -880,9 +881,17 @@ def _is_next_game(
     target_hand_id = _safe_optional_int(target_row.get("ShoeGameCount"))
     return (
         bool(str(target_row.get("GameId", "")).strip())
-        and str(source_row.get("ShoeId", "")) == str(target_row.get("ShoeId", ""))
+        and _shoe_instance_key(source_row) == _shoe_instance_key(target_row)
         and expected_hand_id is not None
         and target_hand_id == expected_hand_id
+    )
+
+
+def _shoe_instance_key(row: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(row.get("GamingDay", "") or "").strip(),
+        str(row.get("TableId", "") or "").strip(),
+        str(row.get("ShoeId", "") or "").strip(),
     )
 
 

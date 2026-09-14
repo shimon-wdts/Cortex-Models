@@ -358,7 +358,7 @@ model_registry:
         - name: game_rows
           sql: |
             WITH active_shoes AS (
-              SELECT DISTINCT shoe_id
+              SELECT DISTINCT gaming_day, table_id, shoe_id
               FROM t_game
               WHERE (
                   (payout_complete_dtm >= :start_ts AND payout_complete_dtm <= :end_ts)
@@ -395,7 +395,10 @@ model_registry:
               g.game_type AS "GameType",
               g.game_status AS "GameStatus"
             FROM t_game g
-            JOIN active_shoes active ON active.shoe_id = g.shoe_id
+            JOIN active_shoes active
+              ON active.gaming_day = g.gaming_day
+              AND active.table_id = g.table_id
+              AND active.shoe_id = g.shoe_id
             WHERE g.game_start_dtm <= :end_ts
               AND g.game_id IS NOT NULL
               AND g.shoe_id IS NOT NULL
@@ -404,7 +407,7 @@ model_registry:
                 OR UPPER(COALESCE(g.game_variant, '')) LIKE '%BACCARAT%'
                 OR UPPER(COALESCE(g.table_template, '')) LIKE '%BACCARAT%'
               )
-            ORDER BY g.shoe_id, g.shoe_game_count, g.game_start_dtm, g.game_id
+            ORDER BY g.gaming_day, g.table_id, g.shoe_id, g.shoe_game_count, g.game_start_dtm, g.game_id
           params:
             start_ts: "{{ start_ts }}"
             end_ts: "{{ end_ts }}"
