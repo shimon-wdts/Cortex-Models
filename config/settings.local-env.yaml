@@ -1,0 +1,62 @@
+model_registry:
+  postgres:
+    replica_url: postgresql+psycopg://wdts_admin:fot_wdtsf07@172.19.10.8:5432/wdts_reportdb?options=-c%20search_path%3Dwdts_reporting
+
+  kafka:
+    # bootstrap_servers: localhost:9092
+    # bootstrap_servers: kafka-kafka-bootstrap.kafka.svc.cluster.local:32100
+    bootstrap_servers: uat-kafka-bootstrap-cortex-floor.wdts.local:32100
+    client_id: cortex-models
+    acks: all
+    security_protocol: SASL_SSL
+    sasl_mechanism: SCRAM-SHA-512
+    sasl_username: model-inference
+    sasl_password: 
+    ssl_ca_location: /Users/shimonshrem/dev/WDTS/Cortex-Models/app/resources/ca.crt
+    ssl_endpoint_identification_algorithm: none # UAT NodePort advertises broker IPs not present in the certificate SANs
+  models:
+    predicted_fills:
+      enabled: true
+      parameters:
+        end_ts: 2026-06-26T04:00:00Z # now or ISO timestamp with source data
+        json_limit: 3
+
+    ShoeAdvantage:
+      enabled: true
+      parameters:
+        end_ts: 2026-06-16T19:54:35.780Z # now or ISO timestamp with source data
+        json_limit: 1
+        start_offset_min: 10
+
+    cohort:
+      enabled: true
+      parameters:
+        source_mode: db
+        gaming_day_end: now
+        observation_days: 21
+        minimum_bets: 30
+        extract_batch_size: 500
+        extract_workers: 4
+        json_limit: 0
+
+    cohort_tier_lift:
+      enabled: true
+      parameters:
+        source_mode: db
+        gaming_day_end: now
+        observation_days: 21
+        minimum_bets: 30
+        extract_batch_size: 500
+        extract_workers: 4
+        json_limit: 0
+
+    playerscore:
+      enabled: true
+      parameters:
+        source_mode: db
+        gaming_day_end: now
+        observation_days: 21
+        minimum_bets: 30
+        extract_batch_size: 500
+        extract_workers: 4
+        json_limit: 0

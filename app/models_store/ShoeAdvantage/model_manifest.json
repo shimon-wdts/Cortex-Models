@@ -1,0 +1,42 @@
+{
+  "recommended": {
+    "lucky6": {
+      "model_file": "lucky6_recommended_lgbm.txt",
+      "source_run": "bench/long_search_20260430_60h/profit_callback_lgbm_ext_seed1717/lucky6_resid_core_conservative",
+      "target": "lucky6",
+      "mode": "residual",
+      "feature_set": "core_no_comb_derived",
+      "base_ev_feature": "comb_ev_lucky6",
+      "notes": "Stable-average pick: best mean Lucky 6 profit/100 shoes across repeated splits."
+    },
+    "big_tiger": {
+      "model_file": "big_tiger_recommended_lgbm.txt",
+      "source_run": "bench/long_search_20260430_60h/profit_callback_lgbm_ext_seed808/big_tiger_resid_core_l1",
+      "target": "big_tiger",
+      "mode": "residual",
+      "feature_set": "core_no_comb_derived",
+      "base_ev_feature": "comb_ev_big_tiger",
+      "notes": "Conservative stable pick. The learned residual is near zero, so this behaves close to exact Big Tiger EV; the non-constant ML variants were much less stable."
+    }
+  },
+  "best_single": {
+    "lucky6": {
+      "model_file": "lucky6_best_single_lgbm.txt",
+      "source_run": "bench/long_search_20260430_60h/profit_callback_lgbm_ext_seed1717/lucky6_resid_full",
+      "target": "lucky6",
+      "mode": "residual",
+      "feature_set": "full",
+      "base_ev_feature": "comb_ev_lucky6",
+      "notes": "Best single held-out split. Higher peak, less stable than recommended."
+    },
+    "big_tiger": {
+      "model_file": "big_tiger_best_single_lgbm.txt",
+      "source_run": "bench/long_search_20260430_60h/profit_callback_lgbm_ext_seed2020/big_tiger_direct_rank_comb",
+      "target": "big_tiger",
+      "mode": "direct",
+      "feature_set": "rank_comb_derived",
+      "base_ev_feature": "comb_ev_big_tiger",
+      "notes": "Best single held-out split. Higher peak, less stable than recommended."
+    }
+  }
+}

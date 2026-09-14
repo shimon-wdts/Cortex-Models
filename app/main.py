@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,8 +20,19 @@ logger = logging.getLogger(__name__)
 
 init_logging()
 
+def log_banner():
+    banner_path = Path("app/resources/banner.txt")
+
+    try:
+        banner = banner_path.read_text(encoding="utf-8")
+        logger.info("\n%s", banner)
+    except FileNotFoundError:
+        logger.warning("Banner file not found: %s", banner_path)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    log_banner()
     logger.info( "CORTEX_ENV=%s ", os.getenv("CORTEX_ENV", ""))
     logger.info("loaded_files=%s", getattr(settings, "_loaded_files", []))
     logger.info("app=%s, version=%s",

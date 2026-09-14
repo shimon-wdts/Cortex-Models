@@ -4,3 +4,33 @@ log:
 
 pas:
   base_url: https://uat-pas.example.com
+
+model_registry:
+  postgres:
+    replica_url: postgresql+psycopg://wdts_admin:**********@172.19.10.8:5432/wdts_reportdb?options=-c%20search_path%3Dwdts_reporting
+  kafka:
+    bootstrap_servers: uat-kafka-bootstrap-cortex-floor.wdts.local:32100
+    client_id: cortex-models
+    acks: all
+    security_protocol: SASL_SSL
+    sasl_mechanism: SCRAM-SHA-512
+    sasl_username: model-inference
+    sasl_password: 
+    ssl_ca_location: <path>/ca.crt
+    ssl_endpoint_identification_algorithm: https
+  models:
+    ShoeAdvantage:
+      schedule:
+        enabled: true
+    predicted_fills:
+      schedule:
+        enabled: true    
+    cohort:
+      schedule:
+        enabled: true    
+    cohort_tier_lift:
+      schedule:
+        enabled: true    
+    playerscore:
+      schedule:
+        enabled: true    
