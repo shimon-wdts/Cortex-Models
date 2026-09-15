@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from prefect.logging import get_run_logger
 
 from app.models.pipeline_contracts import RunContext
 from app.pipelines.base import Pipeline
@@ -35,11 +36,13 @@ class Lucky6BigTigerPipeline(Pipeline):
         query_parameters: dict[str, Any],
     ) -> Lucky6FeatureResult:
         rows = normalize_t_game_rows(raw_data.get("game_rows", pd.DataFrame()))
+        logger = get_run_logger()
         return build_feature_dataset(
             rows,
             publish_start_ts=pd.Timestamp(query_parameters["start_ts"]),
             publish_end_ts=pd.Timestamp(query_parameters["end_ts"]),
             hand_id_mode=str(query_parameters.get("hand_id_mode", "next")),
+            diagnostic_logger=logger.info,
         )
 
     def run_inference(self, features: Lucky6FeatureResult, context: RunContext) -> list[dict[str, Any]]:

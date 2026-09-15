@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 
 from app.pipelines.lucky6_bigtiger.build_features import build_feature_dataset
@@ -128,3 +130,45 @@ def test_reused_shoe_id_is_isolated_by_gaming_day_and_table() -> None:
     assert [record.table_id for record in result.records] == ["71", "72"]
     assert [record.shoe_id for record in result.records] == ["shoe-1", "shoe-1"]
     assert [record.history_size for record in result.records] == [1, 1]
+
+
+def test_diagnostics_show_selected_next_game_id() -> None:
+    messages: list[str] = []
+    rows = [
+        _game("game-1", 1, "2026-09-09T10:00:00Z", "2026-09-09T10:01:00Z"),
+        _game("game-2", 2, "2026-09-09T10:02:00Z"),
+    ]
+
+    build_feature_dataset(
+        normalize_t_game_rows(pd.DataFrame(rows)),
+        publish_start_ts=pd.Timestamp("2026-09-09T10:00:00Z"),
+        publish_end_ts=pd.Timestamp("2026-09-09T10:05:00Z"),
+        diagnostic_logger=messages.append,
+    )
+
+    events = [json.loads(message) for message in messages]
+    matched = next(event for event in events if event["event"] == "shoe_advantage_next_game_matched")
+    assert matched["source_game_id"] == "game-1"
+    assert matched["expected_next_game_count"] == 2
+    assert matched["candidate_game_id"] == "game-2"
+    assert matched["selected_next_game_id"] == "game-2"
+
+
+def test_diagnostics_show_when_next_game_is_missing() -> None:
+    messages: list[str] = []
+
+    build_feature_dataset(
+        normalize_t_game_rows(
+            pd.DataFrame([_game("game-1", 1, "2026-09-09T10:00:00Z", "2026-09-09T10:01:00Z")])
+        ),
+        publish_start_ts=pd.Timestamp("2026-09-09T10:00:00Z"),
+        publish_end_ts=pd.Timestamp("2026-09-09T10:05:00Z"),
+        diagnostic_logger=messages.append,
+    )
+
+    events = [json.loads(message) for message in messages]
+    missing = next(event for event in events if event["event"] == "shoe_advantage_next_game_missing")
+    assert missing["source_game_id"] == "game-1"
+    assert missing["expected_next_game_count"] == 2
+    assert missing["candidate_present"] is False
+    assert missing["selected_next_game_id"] is None
