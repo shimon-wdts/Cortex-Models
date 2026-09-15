@@ -22,8 +22,8 @@ def test_query_params_cover_eligible_players_in_uncapped_rolling_window() -> Non
     assert str(params["gaming_day_end_exclusive"]) == "2026-09-07"
     assert params["observation_days"] == 21
     assert params["minimum_bets"] == 30
-    assert params["extract_batch_size"] == 500
-    assert params["extract_workers"] == 4
+    assert params["extract_batch_size"] == 100
+    assert params["extract_workers"] == 1
     assert params["json_limit"] == 0
 
 

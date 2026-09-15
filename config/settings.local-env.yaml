@@ -35,8 +35,8 @@ model_registry:
         gaming_day_end: now
         observation_days: 21
         minimum_bets: 30
-        extract_batch_size: 500
-        extract_workers: 4
+        extract_batch_size: 100
+        extract_workers: 1
         json_limit: 0
 
     cohort_tier_lift:
@@ -46,8 +46,8 @@ model_registry:
         gaming_day_end: now
         observation_days: 21
         minimum_bets: 30
-        extract_batch_size: 500
-        extract_workers: 4
+        extract_batch_size: 100
+        extract_workers: 1
         json_limit: 0
 
     playerscore:
@@ -57,6 +57,6 @@ model_registry:
         gaming_day_end: now
         observation_days: 21
         minimum_bets: 30
-        extract_batch_size: 500
-        extract_workers: 4
+        extract_batch_size: 100
+        extract_workers: 1
         json_limit: 0

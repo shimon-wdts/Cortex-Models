@@ -8,6 +8,7 @@ from prefect.logging import get_run_logger
 
 from app.clients.postgres import PostgresQueryClient
 from app.models.pipeline_contracts import ExecutionMode, RunContext, StepResult
+from app.pipelines.cohorts.batched_execution import build_cohort_features_in_batches
 from app.services.pipeline import (
     create_run_context,
     extract_data,
@@ -46,7 +47,7 @@ def extract_data_task(context: RunContext) -> dict[str, Any]:
 
 @task(name="extract-and-feature-engineering", retries=1, retry_delay_seconds=30)
 def cohort_extract_and_feature_task(context: RunContext) -> Any:
-    """Build cohort features without passing raw frames across a task boundary."""
+    """Extract, aggregate, and release one cohort player batch at a time."""
     registry = get_model_registry()
     postgres = registry.postgres
     client = PostgresQueryClient(
@@ -54,9 +55,14 @@ def cohort_extract_and_feature_task(context: RunContext) -> Any:
         pool_size=postgres.get("pool_size", 1),
         pool_pre_ping=postgres.get("pool_pre_ping", True),
     )
-    raw_data = extract_data(context, registry=registry, client=client)
-    get_run_logger().info("cohort_handoff status=skipped reason=raw_frames_retained_in_process")
-    return generate_features(context, raw_data, registry=registry)
+    logger = get_run_logger()
+    logger.info("cohort_handoff status=skipped reason=raw_rows_aggregated_per_player_batch")
+    return build_cohort_features_in_batches(
+        context,
+        registry=registry,
+        client=client,
+        log=logger.info,
+    )
 
 
 @task(name="feature-engineering", retries=1, retry_delay_seconds=15)

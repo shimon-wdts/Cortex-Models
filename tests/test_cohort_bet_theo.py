@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from app.pipelines.cohorts.insights_contract import build_tier_lift_insight
-from app.pipelines.cohorts.source import build_features_from_frames
+from app.pipelines.cohorts.source import build_features_from_frames, combine_feature_batches
 
 
 def test_bet_theo_backfills_zero_session_theo() -> None:
@@ -75,6 +75,33 @@ def test_bet_theo_backfills_zero_session_theo() -> None:
     progress_messages: list[str] = []
     result = build_features_from_frames(sessions, bets, games, progress=progress_messages.append)
     total = result.player_total_features.iloc[0]
+
+    embedded_bets = bets.merge(
+        games[["GameId", "GameStartDtm", "GamingDay", "GameType", "Outcome", "NumPlayers", "NumPositions"]],
+        on="GameId",
+        how="left",
+    )
+    embedded_result = build_features_from_frames(sessions, embedded_bets, pd.DataFrame())
+    pd.testing.assert_frame_equal(
+        result.player_period_features.reset_index(drop=True),
+        embedded_result.player_period_features.reset_index(drop=True),
+    )
+
+    aggregate_batch = build_features_from_frames(
+        sessions,
+        bets,
+        games,
+        winner_loser_ratio=result.metadata["winner_loser_ratio"],
+        score_features=False,
+    )
+    batched_result = combine_feature_batches(
+        [aggregate_batch],
+        winner_loser_ratio=result.metadata["winner_loser_ratio"],
+    )
+    pd.testing.assert_frame_equal(
+        result.player_period_features.reset_index(drop=True),
+        batched_result.player_period_features.reset_index(drop=True),
+    )
 
     assert total["theo"] == 8.5
     assert total["total_session_theo"] == 8.5

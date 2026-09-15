@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 from uuid import uuid4
 from venv import logger
@@ -50,8 +52,8 @@ def extract_data(
     registry = registry or get_model_registry()
     config = registry.get_model(context.model_name)
     with observe_step(context, PipelineStep.EXTRACT):
+        logger = get_run_logger()
         if context.query_parameters.get("_skip_extract"):
-            logger = get_run_logger()
             logger.info(PipelineStep.EXTRACT + " skipped by pipeline parameters")
             record_rows(context, PipelineStep.EXTRACT, 0)
             return {}
@@ -60,7 +62,11 @@ def extract_data(
         data: dict[str, pd.DataFrame] = {}
         rows = 0
         for query in config.queries:
+            query_started = perf_counter()
             params = _render_params(query.params, context.query_parameters)
+            logger.info(
+                f"extract_query query={query.name} status=started batched={bool(query.batch_param)}"
+            )
             if query.batch_param:
                 frame = _query_in_batches(
                     client=client,
@@ -71,6 +77,8 @@ def extract_data(
                     batch_size=max(1, int(context.query_parameters.get("extract_batch_size", 500))),
                     workers=max(1, int(context.query_parameters.get("extract_workers", 1))),
                     columns=query.df_columns,
+                    progress=logger.info,
+                    query_name=query.name,
                 )
                 if query.deduplicate_on and not frame.empty:
                     frame = frame.drop_duplicates(query.deduplicate_on, keep="last").reset_index(drop=True)
@@ -80,7 +88,11 @@ def extract_data(
                 frame = pd.DataFrame(columns=query.df_columns)
             data[query.name] = frame
             rows += len(frame)
-        logger = get_run_logger()
+            logger.info(
+                f"extract_query query={query.name} status=completed rows={len(frame)} "
+                f"duration_seconds={perf_counter() - query_started:.3f} "
+                f"frame_mb={_frame_memory_mb(frame):.3f}"
+            )
         logger.info(PipelineStep.EXTRACT + " total rows: " + str(rows))
         record_rows(context, PipelineStep.EXTRACT, rows)
         return data
@@ -221,23 +233,56 @@ def _query_in_batches(
     batch_size: int,
     workers: int,
     columns: list[str],
+    progress: Callable[[str], None] | None = None,
+    query_name: str = "query",
 ) -> pd.DataFrame:
     if not values:
         return pd.DataFrame(columns=columns)
 
     batches = [values[offset : offset + batch_size] for offset in range(0, len(values), batch_size)]
+    if progress:
+        progress(
+            f"extract_batches query={query_name} status=started batches={len(batches)} "
+            f"values={len(values)} batch_size={batch_size} workers={workers}"
+        )
 
-    def run_batch(batch: list[Any]) -> pd.DataFrame:
-        return client.query(sql, {**params, batch_param: batch})
+    def run_batch(number_and_batch: tuple[int, list[Any]]) -> pd.DataFrame:
+        number, batch = number_and_batch
+        started = perf_counter()
+        if progress:
+            progress(
+                f"extract_batch query={query_name} batch={number}/{len(batches)} "
+                f"status=started values={len(batch)}"
+            )
+        frame = client.query(sql, {**params, batch_param: batch})
+        if progress:
+            progress(
+                f"extract_batch query={query_name} batch={number}/{len(batches)} status=completed "
+                f"rows={len(frame)} duration_seconds={perf_counter() - started:.3f} "
+                f"frame_mb={_frame_memory_mb(frame):.3f}"
+            )
+        return frame
+
+    numbered_batches = list(enumerate(batches, start=1))
 
     if workers == 1 or len(batches) == 1:
-        frames = [run_batch(batch) for batch in batches]
+        frames = [run_batch(numbered_batch) for numbered_batch in numbered_batches]
     else:
         with ThreadPoolExecutor(max_workers=min(workers, len(batches))) as executor:
-            frames = list(executor.map(run_batch, batches))
+            frames = list(executor.map(run_batch, numbered_batches))
 
     nonempty = [frame for frame in frames if not frame.empty]
-    return pd.concat(nonempty, ignore_index=True) if nonempty else pd.DataFrame(columns=columns)
+    combined = pd.concat(nonempty, ignore_index=True) if nonempty else pd.DataFrame(columns=columns)
+    if progress:
+        progress(
+            f"extract_batches query={query_name} status=completed batches={len(batches)} "
+            f"rows={len(combined)} frame_mb={_frame_memory_mb(combined):.3f}"
+        )
+    return combined
+
+
+def _frame_memory_mb(frame: pd.DataFrame) -> float:
+    return float(frame.memory_usage(index=True, deep=True).sum()) / (1024 * 1024)
 
 
 def _coerce_raw_data_by_query(raw_data: dict[str, Any] | list[dict[str, Any]]) -> dict[str, pd.DataFrame]:

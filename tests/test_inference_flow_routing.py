@@ -26,7 +26,6 @@ def test_combined_task_passes_raw_frames_directly_to_feature_engineering(monkeyp
     )
     client = object()
     context = object()
-    raw_data = {"bets": object()}
     features = object()
     calls: list[str] = []
 
@@ -37,24 +36,18 @@ def test_combined_task_passes_raw_frames_directly_to_feature_engineering(monkeyp
         assert kwargs == {"pool_size": 2, "pool_pre_ping": True}
         return client
 
-    def fake_extract(received_context, *, registry, client):
+    def fake_batched_features(received_context, *, registry, client, log):
         assert received_context is context
-        calls.append("extract")
-        return raw_data
-
-    def fake_generate(received_context, received_raw_data, *, registry):
-        assert received_context is context
-        assert received_raw_data is raw_data
-        calls.append("features")
+        assert log is not None
+        calls.append("batched_features")
         return features
 
     monkeypatch.setattr("app.flows.inference.PostgresQueryClient", fake_client)
-    monkeypatch.setattr("app.flows.inference.extract_data", fake_extract)
-    monkeypatch.setattr("app.flows.inference.generate_features", fake_generate)
+    monkeypatch.setattr("app.flows.inference.build_cohort_features_in_batches", fake_batched_features)
     monkeypatch.setattr(
         "app.flows.inference.get_run_logger",
         lambda: SimpleNamespace(info=lambda _message: None),
     )
 
     assert cohort_extract_and_feature_task.fn(context) is features
-    assert calls == ["extract", "features"]
+    assert calls == ["batched_features"]

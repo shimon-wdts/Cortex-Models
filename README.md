@@ -353,7 +353,8 @@ cortex-model-pipeline (other models)
 Flow behavior:
 
 - `create_run_context` resolves model name, execution mode, runtime parameters, query parameters, and model-store path.
-- `extract-and-feature-engineering` keeps the large raw cohort frames within one task and returns only aggregated player features.
+- `extract-and-feature-engineering` processes eligible players in bounded batches, releases raw bet/session rows after each batch, and applies population-wide scoring only after the small player aggregates are combined.
+- Cohort batch logs report every query and feature phase with duration, row count, DataFrame size, and process memory.
 - Other models retain separate `extract-data` and `feature-engineering` tasks.
 - `inference` loads or runs the model-specific inference path.
 - `publish-predictions` publishes final records to Kafka and records publish metrics.

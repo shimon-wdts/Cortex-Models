@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import pandas as pd
@@ -42,8 +43,8 @@ class CohortsPipeline(Pipeline):
         prepared["gaming_day_end_exclusive"] = (end_day + timedelta(days=1)).date()
         prepared["observation_days"] = int((end_day - start_day).days) + 1
         prepared["minimum_bets"] = MIN_BETS
-        prepared["extract_batch_size"] = max(1, int(prepared.get("extract_batch_size", 500)))
-        prepared["extract_workers"] = max(1, int(prepared.get("extract_workers", 4)))
+        prepared["extract_batch_size"] = max(1, int(prepared.get("extract_batch_size", 100)))
+        prepared["extract_workers"] = max(1, int(prepared.get("extract_workers", 1)))
         prepared["json_limit"] = int(prepared.get("json_limit", 0))
         prepared["recommend_all"] = _as_bool(prepared.get("recommend_all", True))
         prepared["source_mode"] = source_mode
@@ -73,21 +74,58 @@ class CohortsPipeline(Pipeline):
         )
 
     def run_inference(self, features: CohortsFeatureResult, context: RunContext) -> list[dict[str, Any]]:
+        progress = _feature_progress_callback()
+        phase_started = perf_counter()
+        if progress:
+            progress(
+                "cohort_inference phase=eligibility_filter status=started "
+                f"period_rows={len(features.player_period_features)} total_rows={len(features.player_total_features)}"
+            )
         features = _eligible_feature_result(features)
+        if progress:
+            progress(
+                "cohort_inference phase=eligibility_filter status=completed "
+                f"duration_seconds={perf_counter() - phase_started:.3f} "
+                f"period_rows={len(features.player_period_features)} total_rows={len(features.player_total_features)}"
+            )
         if features.player_total_features.empty:
+            if progress:
+                progress("cohort_inference phase=run status=completed reason=no_eligible_players")
             return []
 
         model_dir = Path(context.model_store_dir or "").resolve()
+        phase_started = perf_counter()
+        if progress:
+            progress(f"cohort_inference phase=cohort_assignment status=started rows={len(features.player_period_features)}")
         cohorts = infer_cohorts_from_frame(
             features.player_period_features,
             model_dir / "cohort_model.json",
         )
+        if progress:
+            progress(
+                "cohort_inference phase=cohort_assignment status=completed "
+                f"duration_seconds={perf_counter() - phase_started:.3f} rows={len(cohorts)}"
+            )
+            phase_started = perf_counter()
+            progress(f"cohort_inference phase=recommendations status=started rows={len(cohorts)}")
         recommendations = infer_recommendations_from_frame(
             cohorts,
             model_dir / "recommendation_model_metadata.json",
             recommend_all=bool(context.query_parameters.get("recommend_all", True)),
         )
+        if progress:
+            progress(
+                "cohort_inference phase=recommendations status=completed "
+                f"duration_seconds={perf_counter() - phase_started:.3f} rows={len(recommendations)}"
+            )
+            phase_started = perf_counter()
+            progress(f"cohort_inference phase=build_events status=started output_kind={self.output_kind}")
         events = self._build_events(features, cohorts, recommendations)
+        if progress:
+            progress(
+                "cohort_inference phase=build_events status=completed "
+                f"duration_seconds={perf_counter() - phase_started:.3f} rows={len(events)}"
+            )
 
         json_limit = int(context.query_parameters.get("json_limit", 0))
         if json_limit > 0:

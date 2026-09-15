@@ -29,20 +29,12 @@ SESSION_USECOLS = [
     "PlayerId",
     "SessionStartDtm",
     "SessionEndDtm",
-    "FirstWagerGameStartDtm",
     "GamingDay",
     "NumBets",
-    "NumGamesElapsed",
-    "NumGamesWithWager",
     "Turnover",
     "TheoWin",
     "PlayerWin",
     "Buyin",
-    "AdjustedTheoWin",
-    "GameType",
-    "PitName",
-    "GamingArea",
-    "TableName",
 ]
 
 BET_USECOLS = [
@@ -50,15 +42,18 @@ BET_USECOLS = [
     "GameId",
     "SessionId",
     "PlayerId",
-    "TableId",
     "BetType",
     "TypeOfBet",
-    "ShortBetNameEn",
     "Wager",
     "CasinoWin",
     "BetTheoWin",
-    "Status",
     "PayoutCompleteDtm",
+    "GameStartDtm",
+    "GamingDay",
+    "GameType",
+    "Outcome",
+    "NumPlayers",
+    "NumPositions",
 ]
 
 GAME_USECOLS = [
@@ -67,13 +62,6 @@ GAME_USECOLS = [
     "GamingDay",
     "GameType",
     "Outcome",
-    "GameResult",
-    "ShoeId",
-    "ShoeGameCount",
-    "TableId",
-    "TableName",
-    "PitName",
-    "GamingArea",
     "NumPlayers",
     "NumPositions",
 ]
@@ -134,12 +122,12 @@ def prepare_sessions(path: Path) -> pd.DataFrame:
     sess["PlayerId"] = clean_id(sess["PlayerId"])
     sess["SessionId"] = clean_id(sess["SessionId"])
     sess["TableId"] = clean_id(sess["TableId"])
-    for col in ["SessionStartDtm", "SessionEndDtm", "FirstWagerGameStartDtm"]:
+    for col in ["SessionStartDtm", "SessionEndDtm"]:
         sess[col] = pd.to_datetime(sess[col], utc=True, errors="coerce")
     sess["GamingDay"] = pd.to_datetime(sess["GamingDay"], errors="coerce").dt.normalize()
     sess["period"] = assign_period(sess["GamingDay"])
     sess = sess[sess["period"].ne("")].copy()
-    for col in ["NumBets", "NumGamesElapsed", "NumGamesWithWager", "Turnover", "TheoWin", "PlayerWin", "Buyin"]:
+    for col in ["NumBets", "Turnover", "TheoWin", "PlayerWin", "Buyin"]:
         sess[col] = pd.to_numeric(sess[col], errors="coerce").fillna(0.0)
     duration = (sess["SessionEndDtm"] - sess["SessionStartDtm"]).dt.total_seconds().clip(lower=0) / 3600.0
     fallback = sess["NumBets"].fillna(0.0) * 45.0 / 3600.0
@@ -164,7 +152,6 @@ def prepare_bets(path: Path, games: pd.DataFrame, sessions: pd.DataFrame) -> pd.
     bet = read_existing_csv(path, BET_USECOLS)
     bet["PlayerId"] = clean_id(bet["PlayerId"])
     bet["SessionId"] = clean_id(bet["SessionId"])
-    bet["TableId"] = clean_id(bet["TableId"])
     bet["BetId"] = pd.to_numeric(bet["BetId"], errors="coerce")
     bet["GameId"] = pd.to_numeric(bet["GameId"], errors="coerce")
     bet["Wager"] = pd.to_numeric(bet["Wager"], errors="coerce").fillna(0.0)
@@ -173,9 +160,9 @@ def prepare_bets(path: Path, games: pd.DataFrame, sessions: pd.DataFrame) -> pd.
     bet["PayoutCompleteDtm"] = pd.to_datetime(bet["PayoutCompleteDtm"], utc=True, errors="coerce")
     bet["BetType"] = bet["BetType"].fillna("").astype(str).str.upper()
     bet["TypeOfBet"] = bet["TypeOfBet"].fillna("").astype(str).str.upper()
-    bet["Status"] = bet["Status"].fillna("").astype(str).str.upper()
 
     game_small = games[["GameId", "GameStartDtm", "GamingDay", "GameType", "Outcome", "NumPlayers", "NumPositions"]]
+    bet = bet.drop(columns=["GameStartDtm", "GamingDay", "GameType", "Outcome", "NumPlayers", "NumPositions"])
     betg = bet.merge(game_small, on="GameId", how="left", validate="many_to_one")
     session_small = sessions[
         ["SessionId", "PlayerId", "GamingDay", "Turnover", "TheoWin", "PlayerWin", "period"]
@@ -237,13 +224,34 @@ def build_player_period_features(
     sessions: pd.DataFrame,
     betg: pd.DataFrame,
     progress: ProgressCallback | None = None,
+    winner_loser_ratio: float | None = None,
 ) -> tuple[pd.DataFrame, float]:
+    features, winner_loser_ratio = build_player_period_aggregates(
+        sessions,
+        betg,
+        progress=progress,
+        winner_loser_ratio=winner_loser_ratio,
+    )
+    return score_player_period_features(features, progress=progress), winner_loser_ratio
+
+
+def build_player_period_aggregates(
+    sessions: pd.DataFrame,
+    betg: pd.DataFrame,
+    progress: ProgressCallback | None = None,
+    winner_loser_ratio: float | None = None,
+) -> tuple[pd.DataFrame, float]:
+    """Build unscored player-period aggregates so raw rows can be released per batch."""
     started = perf_counter()
     report_feature_progress(progress, "player_worth", "started", rows=len(betg))
-    player_actual = betg.groupby("PlayerId", dropna=False)["CasinoWin"].sum()
-    winners = int((player_actual < 0).sum())
-    losers = int((player_actual > 0).sum())
-    winner_loser_ratio = winners / losers if losers else 0.25
+    if winner_loser_ratio is None:
+        player_actual = betg.groupby("PlayerId", dropna=False)["CasinoWin"].sum()
+        winners = int((player_actual < 0).sum())
+        losers = int((player_actual > 0).sum())
+        winner_loser_ratio = winners / losers if losers else 0.25
+        player_rows = len(player_actual)
+    else:
+        player_rows = betg["PlayerId"].nunique(dropna=True)
     betg["worth_row"] = np.maximum.reduce(
         [
             betg["TheoWin_row"].fillna(0.0).to_numpy(),
@@ -251,7 +259,7 @@ def build_player_period_features(
             np.zeros(len(betg)),
         ]
     )
-    report_feature_progress(progress, "player_worth", "completed", started_at=started, rows=len(player_actual))
+    report_feature_progress(progress, "player_worth", "completed", started_at=started, rows=player_rows)
 
     started = perf_counter()
     report_feature_progress(progress, "expand_total_period", "started", rows=len(betg))
@@ -363,6 +371,16 @@ def build_player_period_features(
     features["eligible"] = features["bet_count"].ge(MIN_BETS)
     report_feature_progress(progress, "combine_aggregates", "completed", started_at=started, rows=len(features))
 
+    return features, winner_loser_ratio
+
+
+def score_player_period_features(
+    features: pd.DataFrame,
+    progress: ProgressCallback | None = None,
+) -> pd.DataFrame:
+    """Apply population-wide ranks, behavior scores, and trends after all batches are combined."""
+    features = features.copy()
+
     started = perf_counter()
     report_feature_progress(progress, "score_features", "started", rows=len(features))
     features["worth_score"] = clamp_score_1_100(features.groupby("period")["worth_raw"].transform(robust_pct_rank))
@@ -408,7 +426,7 @@ def build_player_period_features(
     features = add_trend_features(features)
     features = features.rename(columns={"PlayerId": "player_id"})
     report_feature_progress(progress, "score_features", "completed", started_at=started, rows=len(features))
-    return features, winner_loser_ratio
+    return features
 
 
 def add_player_intelligence_scores(features: pd.DataFrame) -> pd.DataFrame:
