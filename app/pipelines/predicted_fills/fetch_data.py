@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 
 import pandas as pd
@@ -115,6 +114,10 @@ def normalize_sources(
         bets["payout_ts"] = to_utc(bets["payout_ts"])
         bets["casino_win"] = pd.to_numeric(bets["casino_win"], errors="coerce").fillna(0.0)
         bets["casino_loss"] = pd.to_numeric(bets["casino_loss"], errors="coerce").fillna(0.0)
+        if "theo_win" in bets.columns:
+            bets["theo_win"] = pd.to_numeric(bets["theo_win"], errors="coerce").fillna(0.0)
+        else:
+            bets["theo_win"] = 0.0
         bets = bets[bets["table_id"].notna() & bets["payout_ts"].notna()].copy()
         bets["table_id"] = bets["table_id"].astype(int)
 

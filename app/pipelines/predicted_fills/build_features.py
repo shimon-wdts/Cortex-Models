@@ -138,7 +138,15 @@ class FeatureBuilder:
         return grouped[schema]
 
     def bet_flow_window(self, bets: pd.DataFrame, anchor_ts: pd.Timestamp) -> pd.DataFrame:
-        schema = ["table_id", "bettor_in_60m", "bettor_out_60m", "count_bets_60m", "last_bet_ts", "last_payout_ts"]
+        schema = [
+            "table_id",
+            "bettor_in_60m",
+            "bettor_out_60m",
+            "theo_last_60m",
+            "count_bets_60m",
+            "last_bet_ts",
+            "last_payout_ts",
+        ]
         if bets is None or bets.empty:
             return pd.DataFrame(columns=schema)
         w_start = anchor_ts - pd.Timedelta(minutes=self.config.window_min)
@@ -147,18 +155,24 @@ class FeatureBuilder:
             return pd.DataFrame(columns=schema)
         win = pd.to_numeric(df["casino_win"], errors="coerce").fillna(0.0)
         loss = pd.to_numeric(df["casino_loss"], errors="coerce").fillna(0.0)
+        theo = pd.to_numeric(df.get("theo_win", 0.0), errors="coerce")
+        if not isinstance(theo, pd.Series):
+            theo = pd.Series(float(theo or 0.0), index=df.index)
+        theo = theo.fillna(0.0).clip(lower=0.0)
         bettor_in = np.where(win > 0, win, 0.0)
         bettor_out = np.where(loss > 0, loss, np.where(win < 0, -win, 0.0))
         tmp = pd.DataFrame({
             "table_id": df["table_id"].astype(int),
             "bettor_in": bettor_in,
             "bettor_out": bettor_out,
+            "theo": theo,
             "_ts": df["payout_ts"],
             "_is_payout": bettor_out > 0,
         })
         grouped = tmp.groupby("table_id", as_index=False).agg(
             bettor_in_60m=("bettor_in", "sum"),
             bettor_out_60m=("bettor_out", "sum"),
+            theo_last_60m=("theo", "sum"),
             count_bets_60m=("table_id", "size"),
             last_bet_ts=("_ts", "max"),
         )

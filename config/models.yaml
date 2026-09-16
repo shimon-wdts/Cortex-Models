@@ -145,7 +145,7 @@ model_registry:
       features_version: "1.0"
       type: PredictedFills
       source: cortex.models.predicted_fills
-      output_schema_version: 1.0
+      output_schema_version: 2.0
       severity_default: critical
       parameters:
         end_ts: now # now or %Y-%m-%d_%H-%M-%S
@@ -155,6 +155,7 @@ model_registry:
         json_limit: 100
         opportunistic_min_prob: 0.30
         avoided_future_trip_minutes: 8.0
+        estimated_downtime_minutes_avoided: 5.0
         same_pit_extra_stop_minutes: 2.0
         max_extra_stops_per_route: 2
 
@@ -231,7 +232,8 @@ model_registry:
               table_id,
               payout_complete_dtm AS payout_ts,
               casino_win,
-              casino_loss_from_nn AS casino_loss
+              casino_loss_from_nn AS casino_loss,
+              theo_win
             FROM t_bet
             WHERE payout_complete_dtm >= :lower
               AND payout_complete_dtm <= :end_ts
@@ -240,7 +242,7 @@ model_registry:
           params:
             lower: "{{ lower }}"
             end_ts: "{{ end_ts }}"
-          df_columns: ["table_id", "payout_ts", "casino_win", "casino_loss"]
+          df_columns: ["table_id", "payout_ts", "casino_win", "casino_loss", "theo_win"]
 
         - name: topology
           sql: |
