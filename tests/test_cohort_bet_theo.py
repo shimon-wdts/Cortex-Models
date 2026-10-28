@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from app.pipelines.cohorts.insights_contract import build_tier_lift_insight
-from app.pipelines.cohorts.source import build_features_from_frames
+from app.pipelines.cohorts.source import build_features_from_frames, combine_feature_batches
 
 
 def test_bet_theo_backfills_zero_session_theo() -> None:
@@ -72,11 +72,60 @@ def test_bet_theo_backfills_zero_session_theo() -> None:
         ]
     )
 
-    result = build_features_from_frames(sessions, bets, games)
+    progress_messages: list[str] = []
+    result = build_features_from_frames(sessions, bets, games, progress=progress_messages.append)
     total = result.player_total_features.iloc[0]
+
+    embedded_bets = bets.merge(
+        games[["GameId", "GameStartDtm", "GamingDay", "GameType", "Outcome", "NumPlayers", "NumPositions"]],
+        on="GameId",
+        how="left",
+    )
+    embedded_result = build_features_from_frames(sessions, embedded_bets, pd.DataFrame())
+    pd.testing.assert_frame_equal(
+        result.player_period_features.reset_index(drop=True),
+        embedded_result.player_period_features.reset_index(drop=True),
+    )
+
+    aggregate_batch = build_features_from_frames(
+        sessions,
+        bets,
+        games,
+        winner_loser_ratio=result.metadata["winner_loser_ratio"],
+        score_features=False,
+    )
+    batched_result = combine_feature_batches(
+        [aggregate_batch],
+        winner_loser_ratio=result.metadata["winner_loser_ratio"],
+    )
+    pd.testing.assert_frame_equal(
+        result.player_period_features.reset_index(drop=True),
+        batched_result.player_period_features.reset_index(drop=True),
+    )
 
     assert total["theo"] == 8.5
     assert total["total_session_theo"] == 8.5
+    assert total["latest_table_id"] == "7"
+
+    for phase in (
+        "prepare_sessions",
+        "prepare_games",
+        "normalize_bets",
+        "merge_game_context",
+        "merge_session_context",
+        "enrich_bets",
+        "sequence_sort",
+        "sequence_flags",
+        "player_worth",
+        "expand_total_period",
+        "aggregate_bets",
+        "aggregate_games",
+        "aggregate_sessions",
+        "combine_aggregates",
+        "score_features",
+    ):
+        assert any(f"phase={phase} status=started" in message for message in progress_messages)
+        assert any(f"phase={phase} status=completed" in message for message in progress_messages)
 
     tier_row = total.copy()
     tier_row["path_fit_score"] = 0.9
@@ -87,6 +136,11 @@ def test_bet_theo_backfills_zero_session_theo() -> None:
     tier_row["target_better_cohort_label"] = "Target cohort"
     event = build_tier_lift_insight(tier_row)
 
+    assert event["entity"] == [
+        {"type": "Player", "id": "7295", "present_in_user_interface": True}
+    ]
+    assert event["player_id"] == "7295"
+    assert event["table_id"] == "7"
     impact = event["payload"]["result"]["modeled_impact"]
     assert impact["current_theo"] == 2.83
     assert impact["expected_theo"] == 3.0

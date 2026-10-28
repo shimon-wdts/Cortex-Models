@@ -22,19 +22,41 @@ SOURCE_BY_MODEL = {
 ENV = "prod"
 MODEL_VERSION = "10.2.0"
 APPLICATIONS = ["cortexFloor"]
-MIN_TIER_LIFT_GROWTH_PCT = 5.0
+MIN_TIER_LIFT_GROWTH_PCT = 0.0
+# One-time namespace bump so UAT republishes the refreshed player profiles.
+# Keep this value stable after deployment so subsequent runs deduplicate normally.
+PLAYER_PROFILE_DEDUPLICATION_GENERATION = "did-2026-09-10"
 PLAYER_SCORE_WEIGHTS = {
     "worth": 0.35,
     "deal_hold": 0.35,
     "frequency": 0.20,
     "volatility": 0.10,
 }
+BETTING_STYLE_STABLE = "Stable"
+BETTING_STYLE_PROGRESSIVE = "Progressive"
+BETTING_STYLE_SIDE_BET_HEAVY = "Side-Bet Heavy"
+BETTING_STYLE_VOLATILE = "Volatile"
+BETTING_STYLE_RISK_WAGERER = "Risk Wagerer"
+BETTING_STYLE_LABELS = (
+    BETTING_STYLE_STABLE,
+    BETTING_STYLE_PROGRESSIVE,
+    BETTING_STYLE_SIDE_BET_HEAVY,
+    BETTING_STYLE_VOLATILE,
+    BETTING_STYLE_RISK_WAGERER,
+)
+BETTING_STYLE_LABEL_SET = frozenset(BETTING_STYLE_LABELS)
 BETTING_STYLE_BY_PRIMARY_BEHAVIOR = {
-    "balanced": "Stable",
-    "engaged": "Progressive",
-    "side bet heavy": "Side-Bet Heavy",
-    "high volatility": "Volatile",
-    "chases losses": "Risk Wagerer",
+    # Legacy feature labels.
+    "balanced": BETTING_STYLE_STABLE,
+    "engaged": BETTING_STYLE_PROGRESSIVE,
+    "side bet heavy": BETTING_STYLE_SIDE_BET_HEAVY,
+    "high volatility": BETTING_STYLE_VOLATILE,
+    "chases losses": BETTING_STYLE_RISK_WAGERER,
+    # Product labels, for callers that already use the canonical taxonomy.
+    "stable": BETTING_STYLE_STABLE,
+    "progressive": BETTING_STYLE_PROGRESSIVE,
+    "volatile": BETTING_STYLE_VOLATILE,
+    "risk wagerer": BETTING_STYLE_RISK_WAGERER,
 }
 TIER_LIFT_RATIONALE_TEMPLATES = {
     "Protect momentum after losses": (
@@ -238,15 +260,6 @@ PRIMARY_BEHAVIOR_PRIORITY_GROUPS = [
     ),
 ]
 
-ENTITY_FIELDS = [
-    ("TABLE", ("table_id", "tableId", "table_code", "table"), True),
-    ("Player", ("player_id", "playerId"), True),
-    ("bet_id", ("bet_id", "betId"), False),
-    ("game_id", ("game_id", "gameId"), False),
-    ("topology_id", ("topology_id", "topologyId", "topologu_id"), False),
-]
-
-
 def safe_str(value: Any, default: str = "") -> str:
     if value is None or pd.isna(value):
         return default
@@ -351,20 +364,20 @@ def ttl_iso(days: int = 30) -> str:
     return (pd.Timestamp.utcnow() + pd.Timedelta(days=days)).isoformat().replace("+00:00", "Z")
 
 
-def insight_entities(row: pd.Series) -> list[dict[str, Any]]:
-    entities: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for entity_type, fields, present in ENTITY_FIELDS:
-        entity_id = ""
-        for field in fields:
-            entity_id = safe_str(row.get(field))
-            if entity_id:
-                break
-        if not entity_id or (entity_type, entity_id) in seen:
-            continue
-        seen.add((entity_type, entity_id))
-        entities.append({"type": entity_type, "id": entity_id, "present_in_user_interface": present})
-    return entities
+def player_entities(player_id: Any) -> list[dict[str, Any]]:
+    """Return the required player entity for all cohort-family insights."""
+    return [
+        {
+            "type": "Player",
+            "id": safe_str(player_id, "unknown"),
+            "present_in_user_interface": True,
+        }
+    ]
+
+
+def tier_lift_table_id(row: pd.Series) -> str:
+    """Return the table from the player's latest session when available."""
+    return safe_str(row.get("latest_table_id")) or safe_str(row.get("table_id"))
 
 
 def base_payload(
@@ -597,22 +610,29 @@ def betting_style(row: pd.Series | None) -> dict[str, Any]:
     side_bet_intensity = safe_str(row.get("side_bet_intensity"), "Unknown")
     risk_label = safe_str(row.get("risk_volatility_label"), "Unknown")
     limit_readiness = first_score_0_100(row.get("pred_limit_path_readiness_prob"), row.get("stretch_capacity_score"))
-    primary_behavior = safe_str(row.get("primary_behavior")).lower()
+    primary_behavior = " ".join(
+        safe_str(row.get("primary_behavior")).lower().replace("-", " ").replace("_", " ").split()
+    )
     label = BETTING_STYLE_BY_PRIMARY_BEHAVIOR.get(primary_behavior)
     if label is None:
         chase_rate = safe_float(row.get("chase_rate"), 0.0) or 0.0
         side_bet_rate = safe_float(row.get("side_bet_rate"), 0.0) or 0.0
         volatility = score_0_100(row.get("volatility_score_behavior"), 0.0) or 0.0
         if chase_rate >= 0.20:
-            label = "Risk Wagerer"
+            label = BETTING_STYLE_RISK_WAGERER
         elif side_bet_intensity.lower() == "high" or side_bet_rate >= 0.35:
-            label = "Side-Bet Heavy"
+            label = BETTING_STYLE_SIDE_BET_HEAVY
         elif risk_label.lower() == "high risk" or volatility >= 75:
-            label = "Volatile"
+            label = BETTING_STYLE_VOLATILE
         elif (limit_readiness or 0.0) >= 55:
-            label = "Progressive"
+            label = BETTING_STYLE_PROGRESSIVE
         else:
-            label = "Stable"
+            label = BETTING_STYLE_STABLE
+
+    # Keep the public contract closed even if a new upstream behavior label is
+    # introduced without a corresponding product-taxonomy mapping.
+    if label not in BETTING_STYLE_LABEL_SET:
+        label = BETTING_STYLE_STABLE
 
     return {
         "label": label,
@@ -740,13 +760,16 @@ def build_cohort_insight(row: pd.Series) -> dict[str, Any]:
         "time_to_action": {"unit": "Minutes", "value": 0},
         "confidence": confidence,
         "time_to_live": ttl_iso(),
-        "thresholds": recommendation_thresholds("payload.result.score", 0.2),
+        # Cohort profile data is informational and must reach Floor for every
+        # eligible player; recommendation thresholds are reserved for actions.
+        "thresholds": [],
         "deduplication_id": recommendation_deduplication_id(
             {
                 "model_type": "PlayerCohort",
                 "player_id": player_id,
                 "action_type": "review_cohort_assignment",
                 "cohort": cohort_label,
+                "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
             }
         ),
     }
@@ -766,7 +789,7 @@ def build_cohort_insight(row: pd.Series) -> dict[str, Any]:
     return base_payload(
         model_type="PlayerCohort",
         severity=severity_from_score(confidence_score, actionable=False),
-        entities=insight_entities(row),
+        entities=player_entities(player_id),
         result=result,
         presentation={
             "headline": "Player Cohort Assignment",
@@ -1065,6 +1088,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
                 "recommended_path": path,
                 "target_cohort": target_label,
                 "recommendation_target": recommendation_target,
+                "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
             }
         ),
     }
@@ -1105,6 +1129,7 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
                 "target_cohort": target_label,
                 "recommendation_target": recommendation_target,
                 "trigger": "primary_action_not_redeemed",
+                "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
             }
         ),
     }
@@ -1135,10 +1160,10 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
         "player_score": shared["player_score"],
         "betting_style": shared["betting_style"],
     }
-    return base_payload(
+    event = base_payload(
         model_type="CohortTierLift",
         severity=severity_from_score(path_fit, actionable=True),
-        entities=insight_entities(row),
+        entities=player_entities(player_id),
         result=result,
         presentation={
             "headline": headline,
@@ -1147,6 +1172,11 @@ def build_tier_lift_insight(row: pd.Series) -> dict[str, Any]:
             "recommendations": recommendations,
         },
     )
+    event["player_id"] = player_id
+    table_id = tier_lift_table_id(row)
+    if table_id:
+        event["table_id"] = table_id
+    return event
 
 
 def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
@@ -1176,13 +1206,16 @@ def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
         "time_to_action": {"unit": "Days", "value": 7},
         "confidence": confidence,
         "time_to_live": ttl_iso(),
-        "thresholds": recommendation_thresholds("payload.result.player_score", 55),
+        # A low score still belongs on the player's profile. Do not let the
+        # output service suppress the entire profile event.
+        "thresholds": [],
         "deduplication_id": recommendation_deduplication_id(
             {
                 "model_type": "PlayerPerformance",
                 "player_id": player_id,
                 "action_type": "review_player_score",
                 "player_score": f"{score:.1f}",
+                "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
             }
         ),
     }
@@ -1201,7 +1234,7 @@ def build_player_score_insight(row: pd.Series) -> dict[str, Any]:
     return base_payload(
         model_type="PlayerPerformance",
         severity=severity_from_score(score, actionable=True),
-        entities=insight_entities(row),
+        entities=player_entities(player_id),
         result=result,
         presentation={
             "headline": "Player Score",

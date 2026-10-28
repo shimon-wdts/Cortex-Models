@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import copy
+import json
 import math
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from itertools import product
-from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Callable, Deque, Dict, Iterable, List, Mapping, Optional
 
 import numpy as np
 import pandas as pd
@@ -459,7 +460,7 @@ class LiveFeatureBuilder:
 
     def __init__(self, seq_len: int = SEQ_LEN) -> None:
         self.seq_len = seq_len
-        self.states: Dict[str, ShoeState] = {}
+        self.states: Dict[tuple[str, str, str], ShoeState] = {}
         self.state = ShoeState()
 
     def process_completed_row(self, row: Dict[str, str]) -> Dict[str, object]:
@@ -467,12 +468,13 @@ class LiveFeatureBuilder:
         if not shoe_id:
             raise ValueError("Row is missing ShoeId")
 
-        shoe_reset = shoe_id not in self.states
+        shoe_key = _shoe_instance_key(row)
+        shoe_reset = shoe_key not in self.states
         if shoe_reset:
             state = ShoeState()
             state.reset(shoe_id)
-            self.states[shoe_id] = state
-        self.state = self.states[shoe_id]
+            self.states[shoe_key] = state
+        self.state = self.states[shoe_key]
 
         hand_id = _safe_int(row.get("ShoeGameCount"), self.state.completed_hands + 1)
         next_hand_id = hand_id + 1
@@ -798,6 +800,7 @@ def build_feature_dataset(
     publish_start_ts: pd.Timestamp,
     publish_end_ts: pd.Timestamp,
     hand_id_mode: str = "next",
+    diagnostic_logger: Callable[[str], None] | None = None,
 ) -> Lucky6FeatureResult:
     if hand_id_mode not in {"next", "current"}:
         raise ValueError("hand_id_mode must be 'next' or 'current'")
@@ -812,13 +815,149 @@ def build_feature_dataset(
     builder = LiveFeatureBuilder()
     records: list[Lucky6FeatureRecord] = []
     skipped_rows = 0
+    pending_by_shoe: dict[tuple[str, str, str], tuple[dict[str, str], pd.Timestamp, dict[str, Any]]] = {}
+    checked_sources: set[tuple[tuple[str, str, str], str]] = set()
+    diagnostic_counts: dict[str, int] = defaultdict(int)
+
+    def log_diagnostic(event: str, **fields: Any) -> None:
+        diagnostic_counts[event] += 1
+        if diagnostic_logger is None:
+            return
+        diagnostic_logger(
+            json.dumps(
+                {
+                    "event": f"shoe_advantage_{event}",
+                    **fields,
+                },
+                default=str,
+                sort_keys=True,
+            )
+        )
+
+    log_diagnostic(
+        "matching_started",
+        extracted_rows=len(rows),
+        shoe_instances=len({_shoe_instance_key(row) for row in rows}),
+        publish_start_ts=start_ts,
+        publish_end_ts=end_ts,
+    )
 
     for row in rows:
-        event_ts = to_utc_timestamp(row.get("PayoutCompleteDtm")) or to_utc_timestamp(row.get("GameStartDtm"))
+        event_ts = to_utc_timestamp(row.get("PayoutCompleteDtm"))
         game_start_ts = to_utc_timestamp(row.get("GameStartDtm"))
-        should_publish = event_ts is not None and start_ts <= event_ts <= end_ts
+        shoe_key = _shoe_instance_key(row)
+        candidate_game_id = str(row.get("GameId", "") or "").strip()
+        candidate_hand_id = _safe_optional_int(row.get("ShoeGameCount"))
 
-        shoe_key = str(row.get("ShoeId", "") or "")
+        pending = pending_by_shoe.get(shoe_key)
+        if pending is None:
+            log_diagnostic(
+                "no_previous_completed_game",
+                candidate_game_id=candidate_game_id or None,
+                candidate_game_count=candidate_hand_id,
+                expected_previous_game_count=(candidate_hand_id - 1) if candidate_hand_id is not None else None,
+                reason="shoe_start" if candidate_hand_id == 1 else "previous_completed_game_missing",
+                gaming_day=shoe_key[0],
+                table_id=shoe_key[1],
+                shoe_id=shoe_key[2],
+                game_start_ts=game_start_ts,
+                payout_complete_ts=event_ts,
+            )
+        elif game_start_ts is None:
+            source_row, source_event_ts, built = pending
+            source_game_id = str(source_row.get("GameId", "") or "").strip()
+            checked_sources.add((shoe_key, source_game_id))
+            log_diagnostic(
+                "next_game_rejected",
+                source_game_id=source_game_id or None,
+                source_game_count=_safe_optional_int(source_row.get("ShoeGameCount")),
+                expected_next_game_count=_safe_optional_int(built.get("next_hand_id")),
+                candidate_present=True,
+                candidate_game_id=candidate_game_id or None,
+                candidate_game_count=candidate_hand_id,
+                selected_next_game_id=None,
+                reason="candidate_game_start_missing",
+                source_payout_complete_ts=source_event_ts,
+                gaming_day=shoe_key[0],
+                table_id=shoe_key[1],
+                shoe_id=shoe_key[2],
+            )
+        else:
+            source_row, source_event_ts, built = pending
+            source_game_id = str(source_row.get("GameId", "") or "").strip()
+            checked_sources.add((shoe_key, source_game_id))
+            ready_ts = max(source_event_ts, game_start_ts)
+            in_publish_window = start_ts <= ready_ts <= end_ts
+            is_next_game = _is_next_game(source_row, row, built)
+            expected_hand_id = _safe_optional_int(built.get("next_hand_id"))
+            rejection_reasons: list[str] = []
+            if not in_publish_window:
+                rejection_reasons.append("outside_publish_window")
+            if not candidate_game_id:
+                rejection_reasons.append("candidate_game_id_missing")
+            if expected_hand_id is None:
+                rejection_reasons.append("expected_game_count_missing")
+            elif candidate_hand_id != expected_hand_id:
+                rejection_reasons.append("game_count_mismatch")
+            if _shoe_instance_key(source_row) != shoe_key:
+                rejection_reasons.append("shoe_instance_mismatch")
+
+            if in_publish_window and is_next_game:
+                skip_reason = built.get("skip_reason")
+                records.append(
+                    _record_for_target_game(
+                        row,
+                        source_event_ts,
+                        game_start_ts,
+                        hand_id_mode,
+                        None if skip_reason else full_feature_row(built),
+                        str(skip_reason) if skip_reason else None,
+                        built,
+                    )
+                )
+                log_diagnostic(
+                    "next_game_matched",
+                    source_game_id=source_game_id or None,
+                    source_game_count=_safe_optional_int(source_row.get("ShoeGameCount")),
+                    expected_next_game_count=expected_hand_id,
+                    candidate_present=True,
+                    candidate_game_id=candidate_game_id,
+                    candidate_game_count=candidate_hand_id,
+                    selected_next_game_id=candidate_game_id,
+                    source_payout_complete_ts=source_event_ts,
+                    candidate_game_start_ts=game_start_ts,
+                    ready_ts=ready_ts,
+                    feature_skip_reason=skip_reason,
+                    gaming_day=shoe_key[0],
+                    table_id=shoe_key[1],
+                    shoe_id=shoe_key[2],
+                )
+            else:
+                log_diagnostic(
+                    "next_game_rejected",
+                    source_game_id=source_game_id or None,
+                    source_game_count=_safe_optional_int(source_row.get("ShoeGameCount")),
+                    expected_next_game_count=expected_hand_id,
+                    candidate_present=True,
+                    candidate_game_id=candidate_game_id or None,
+                    candidate_game_count=candidate_hand_id,
+                    selected_next_game_id=None,
+                    reason=",".join(rejection_reasons) or "next_game_validation_failed",
+                    source_payout_complete_ts=source_event_ts,
+                    candidate_game_start_ts=game_start_ts,
+                    ready_ts=ready_ts,
+                    publish_start_ts=start_ts,
+                    publish_end_ts=end_ts,
+                    gaming_day=shoe_key[0],
+                    table_id=shoe_key[1],
+                    shoe_id=shoe_key[2],
+                )
+
+        # An unfinished game supplies the target game ID for the previous hand's
+        # prediction, but must not be applied to the card-history state itself.
+        if event_ts is None or event_ts > end_ts:
+            continue
+
         shoe_backup = copy.deepcopy(builder.states.get(shoe_key)) if shoe_key in builder.states else None
         built: dict[str, Any]
         try:
@@ -831,28 +970,54 @@ def build_feature_dataset(
             else:
                 builder.states[shoe_key] = shoe_backup
                 builder.state = shoe_backup
-            if should_publish:
-                records.append(_record_from_row(row, event_ts, game_start_ts, hand_id_mode, None, f"feature_error: {exc}"))
+            pending_by_shoe[shoe_key] = (row, event_ts, {"skip_reason": f"feature_error: {exc}"})
+            log_diagnostic(
+                "feature_error",
+                source_game_id=candidate_game_id or None,
+                source_game_count=candidate_hand_id,
+                expected_next_game_count=(candidate_hand_id + 1) if candidate_hand_id is not None else None,
+                error_type=type(exc).__name__,
+                error=str(exc),
+                gaming_day=shoe_key[0],
+                table_id=shoe_key[1],
+                shoe_id=shoe_key[2],
+            )
             continue
 
         skip_reason = built.get("skip_reason")
         if skip_reason:
             skipped_rows += 1
-        if not should_publish:
-            continue
+        pending_by_shoe[shoe_key] = (row, event_ts, built)
 
-        feature_row = None if skip_reason else full_feature_row(built)
-        records.append(
-            _record_from_row(
-                row,
-                event_ts,
-                game_start_ts,
-                hand_id_mode,
-                feature_row,
-                str(skip_reason) if skip_reason else None,
-                built,
-            )
+    for shoe_key, (source_row, source_event_ts, built) in pending_by_shoe.items():
+        source_game_id = str(source_row.get("GameId", "") or "").strip()
+        if (shoe_key, source_game_id) in checked_sources:
+            continue
+        log_diagnostic(
+            "next_game_missing",
+            source_game_id=source_game_id or None,
+            source_game_count=_safe_optional_int(source_row.get("ShoeGameCount")),
+            expected_next_game_count=_safe_optional_int(built.get("next_hand_id")),
+            candidate_present=False,
+            candidate_game_id=None,
+            candidate_game_count=None,
+            selected_next_game_id=None,
+            reason="no_later_row_for_shoe_instance",
+            source_payout_complete_ts=source_event_ts,
+            gaming_day=shoe_key[0],
+            table_id=shoe_key[1],
+            shoe_id=shoe_key[2],
         )
+
+    log_diagnostic(
+        "matching_summary",
+        extracted_rows=len(rows),
+        produced_records=len(records),
+        skipped_rows=skipped_rows,
+        diagnostic_counts=dict(diagnostic_counts),
+        publish_start_ts=start_ts,
+        publish_end_ts=end_ts,
+    )
 
     return Lucky6FeatureResult(
         records=records,
@@ -863,8 +1028,31 @@ def build_feature_dataset(
     )
 
 
-def _record_from_row(
-    row: dict[str, str],
+def _is_next_game(
+    source_row: Mapping[str, Any],
+    target_row: Mapping[str, Any],
+    built: Mapping[str, Any],
+) -> bool:
+    expected_hand_id = _safe_optional_int(built.get("next_hand_id"))
+    target_hand_id = _safe_optional_int(target_row.get("ShoeGameCount"))
+    return (
+        bool(str(target_row.get("GameId", "")).strip())
+        and _shoe_instance_key(source_row) == _shoe_instance_key(target_row)
+        and expected_hand_id is not None
+        and target_hand_id == expected_hand_id
+    )
+
+
+def _shoe_instance_key(row: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(row.get("GamingDay", "") or "").strip(),
+        str(row.get("TableId", "") or "").strip(),
+        str(row.get("ShoeId", "") or "").strip(),
+    )
+
+
+def _record_for_target_game(
+    target_row: dict[str, str],
     event_ts: pd.Timestamp | None,
     game_start_ts: pd.Timestamp | None,
     hand_id_mode: str,
@@ -874,24 +1062,24 @@ def _record_from_row(
 ) -> Lucky6FeatureRecord:
     built = built or {}
     hand_key = "next_hand_id" if hand_id_mode == "next" else "hand_id"
-    hand_id = built.get(hand_key, row.get("ShoeGameCount", ""))
+    hand_id = built.get(hand_key, target_row.get("ShoeGameCount", ""))
     return Lucky6FeatureRecord(
         hand_id=hand_id,
-        shoe_id=str(built.get("shoe_id", row.get("ShoeId", ""))),
-        game_id=str(row.get("GameId", "")),
+        shoe_id=str(built.get("shoe_id", target_row.get("ShoeId", ""))),
+        game_id=str(target_row.get("GameId", "")),
         event_ts=event_ts,
         game_start_ts=game_start_ts,
-        gaming_day=str(row.get("GamingDay", "")),
-        table_id=str(row.get("TableId", "")),
-        table_name=str(row.get("TableName", "")),
-        pit_name=str(row.get("PitName", "")),
-        gaming_area=str(row.get("GamingArea", "")),
+        gaming_day=str(target_row.get("GamingDay", "")),
+        table_id=str(target_row.get("TableId", "")),
+        table_name=str(target_row.get("TableName", "")),
+        pit_name=str(target_row.get("PitName", "")),
+        gaming_area=str(target_row.get("GamingArea", "")),
         feature_row=feature_row,
         skip_reason=skip_reason,
         cards_remaining=_safe_optional_float(built.get("cards_remaining")),
         decks_remaining=_safe_optional_float(built.get("decks_remaining")),
         history_size=_safe_optional_int(built.get("history_size")),
-        source_row=row,
+        source_row=target_row,
     )
 
 

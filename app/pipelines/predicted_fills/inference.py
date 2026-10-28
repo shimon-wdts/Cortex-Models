@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import json
 import pickle
 from pathlib import Path
@@ -136,44 +135,63 @@ def severity_from_row(row: pd.Series) -> str:
     return "Low"
 
 
-def build_recommendations(row: pd.Series) -> tuple[list[str], list[str], list[float], list[int], list[float], list[str], list[dict[str, object]]]:
-    need_pred = int(pd.to_numeric(row.get("need_pred", 0), errors="coerce") or 0)
-    need_prob = float(pd.to_numeric(row.get("need_prob", 0.0), errors="coerce") or 0.0)
-    time_to_depletion = int(min(999, max(0, round((1.0 - min(need_prob, 0.999)) * 240)))) if need_pred else 999
-    impact = round(need_prob * 100.0, 2)
-    roi = round(max(0.0, need_prob * 10.0), 5)
+def _numeric_value(row: pd.Series, key: str, default: float = 0.0) -> float:
+    value = pd.to_numeric(row.get(key, default), errors="coerce")
+    return default if pd.isna(value) else float(value)
 
-    if need_pred:
-        types = ["cage_fill", "table_transfer"]
-        recommendations = ["Dispatch fill from cage", "Consider chip transfer between tables"]
-    else:
-        types = ["monitor"]
-        recommendations = ["Monitor table condition"]
 
-    modeled_impact = [impact] if len(types) == 1 else [impact, round(impact * 0.8, 2)]
-    time_to_depletion_list = [time_to_depletion] * len(types)
-    roi_list = [roi] if len(types) == 1 else [roi, round(roi * 0.9, 5)]
-    roi_unit = ["x"] * len(types)
+def _optional_numeric_value(row: pd.Series, key: str) -> float | None:
+    value = pd.to_numeric(row.get(key), errors="coerce")
+    return None if pd.isna(value) else float(value)
 
-    rationale = []
-    for idx in range(len(types)):
-        pretty = (
-            f"Balance is {round(float(pd.to_numeric(row.get('available_for_payout', 0.0), errors='coerce') or 0.0), 2):,.0f} above buffer | "
-            f"Expected payout next 30 min: {round(float(pd.to_numeric(row.get('expected_payout_next30', 0.0), errors='coerce') or 0.0), 2):,.0f} | "
-            f"EV/hr impact: {round(modeled_impact[idx], 2):,.0f} | "
-            f"Safety buffer: {round(float(pd.to_numeric(row.get('safety_reserve', 0.0), errors='coerce') or 0.0), 2):,.0f}"
-        )
-        rationale.append(
-            {
-                "rel_balance": round(float(pd.to_numeric(row.get("available_for_payout", 0.0), errors="coerce") or 0.0), 2),
-                "exp_payout_next30": round(float(pd.to_numeric(row.get("expected_payout_next30", 0.0), errors="coerce") or 0.0), 2),
-                "exp_payout_hr": round(modeled_impact[idx], 2),
-                "safety_buffer": round(float(pd.to_numeric(row.get("safety_reserve", 0.0), errors="coerce") or 0.0), 2),
-                "model": row.get("model_type"),
-                "pretty": pretty,
-            }
-        )
-    return types, recommendations, modeled_impact, time_to_depletion_list, roi_list, roi_unit, rationale
+
+def _time_to_depletion_minutes(row: pd.Series) -> int | None:
+    candidates: list[float] = []
+    available = max(0.0, _numeric_value(row, "available_for_payout"))
+    out_rate = max(0.0, _numeric_value(row, "out_rate_per_min"))
+    if out_rate > 0:
+        candidates.append(available / out_rate)
+
+    denomination_minutes = _optional_numeric_value(row, "worst_denom_minutes_to_zero")
+    if denomination_minutes is not None and denomination_minutes >= 0:
+        candidates.append(denomination_minutes)
+
+    if not candidates:
+        return None
+    return max(0, int(round(min(candidates))))
+
+
+def _table_display_name(row: pd.Series, table_id: str) -> str:
+    table_name = str(row.get("table_name", "") or "").strip()
+    return table_name if table_name and table_name.lower() != "nan" else f"Table {table_id}"
+
+
+def _table_context(row: pd.Series, display_name: str) -> str:
+    parts = [display_name]
+    for key in ("pit_name", "gaming_area"):
+        value = str(row.get(key, "") or "").strip()
+        if value and value.lower() != "nan" and value not in parts:
+            parts.append(value)
+    return " | ".join(parts)
+
+
+def _estimated_theo_impact(
+    row: pd.Series,
+    need_probability: float,
+    downtime_minutes_avoided: float,
+) -> dict[str, object]:
+    average_theo_per_hour = max(0.0, _numeric_value(row, "theo_last_60m"))
+    minutes_avoided = max(0.0, downtime_minutes_avoided)
+    expected_theo_preserved = average_theo_per_hour * (minutes_avoided / 60.0) * need_probability
+    return {
+        "value": round(expected_theo_preserved, 2),
+        "unit": "theo",
+        "label": "Estimated theo preserved",
+        "average_theo_per_hour": round(average_theo_per_hour, 2),
+        "downtime_minutes_avoided": round(minutes_avoided, 2),
+        "fill_need_probability": round(need_probability, 6),
+        "calculation": "average_theo_per_hour * downtime_minutes_avoided / 60 * fill_need_probability",
+    }
 
 
 def _confidence_from_probability(probability: float) -> str:
@@ -191,14 +209,14 @@ def _fill_action(action_type: str, row: pd.Series, table_id: str) -> dict[str, o
             "source": "cage",
             "destination_table_id": table_id,
         }
-    if action_type == "table_transfer":
-        source_table_id = json_safe_value(row.get("route_v2_primary_dispatch_table_id"))
+    if action_type == "add_to_route":
+        primary_dispatch_table_id = json_safe_value(row.get("route_v2_primary_dispatch_table_id"))
         action: dict[str, object] = {
             "type": action_type,
             "destination_table_id": table_id,
         }
-        if source_table_id is not None:
-            action["source_table_id"] = str(source_table_id)
+        if primary_dispatch_table_id is not None:
+            action["primary_dispatch_table_id"] = str(primary_dispatch_table_id)
         return action
     return {
         "type": action_type,
@@ -215,76 +233,173 @@ def build_fill_alerts_json(
     work = scored.copy()
     if "snapshot_ts" in work.columns:
         work["snapshot_ts"] = pd.to_datetime(work["snapshot_ts"], errors="coerce", utc=True)
-    work = work.sort_values(["need_prob", "snapshot_ts"], ascending=[False, False], na_position="last")
+    sort_columns = [column for column in ("need_prob", "snapshot_ts") if column in work.columns]
+    if sort_columns:
+        work = work.sort_values(sort_columns, ascending=[False] * len(sort_columns), na_position="last")
     if limit is not None:
         work = work.head(limit)
 
     alerts: list[dict[str, object]] = []
     for _, row in work.iterrows():
         table_id = str(row.get("table_id", "unknown"))
+        display_name = _table_display_name(row, table_id)
+        table_context = _table_context(row, display_name)
         snapshot_ts = pd.to_datetime(row.get("snapshot_ts"), errors="coerce", utc=True)
         snapshot_text = snapshot_ts.strftime("%Y-%m-%dT%H:%M") if not pd.isna(snapshot_ts) else "unknown"
         alert_id = f"{table_id}_{snapshot_text}"
         severity = severity_from_row(row)
-        types, recommendations, modeled_impact, time_to_depletion_list, roi_list, roi_unit, rationale = build_recommendations(row)
-        need_prob = float(pd.to_numeric(row.get("need_prob", 0.0), errors="coerce") or 0.0)
-        chart_points = [
-            round(float(pd.to_numeric(row.get("tray_balance", 0.0), errors="coerce") or 0.0), 2),
-            round(float(pd.to_numeric(row.get("available_for_payout", 0.0), errors="coerce") or 0.0), 2),
-            round(float(pd.to_numeric(row.get("expected_payout_next30", 0.0), errors="coerce") or 0.0), 2),
-            round(float(pd.to_numeric(row.get("expected_payout_next60", 0.0), errors="coerce") or 0.0), 2),
-            round(float(pd.to_numeric(row.get("out_rate_per_min", 0.0), errors="coerce") or 0.0), 2),
+        need_pred = int(_numeric_value(row, "need_pred"))
+        need_prob = min(1.0, max(0.0, _numeric_value(row, "need_prob")))
+        time_to_depletion = _time_to_depletion_minutes(row)
+        configured_downtime_minutes = 5.0
+        if context is not None:
+            configured_downtime_minutes = float(
+                context.parameters.get("estimated_downtime_minutes_avoided", configured_downtime_minutes)
+            )
+        modeled_impact = _estimated_theo_impact(row, need_prob, configured_downtime_minutes)
+
+        tray_balance = round(_numeric_value(row, "tray_balance"), 2)
+        safety_reserve = round(_numeric_value(row, "safety_reserve"), 2)
+        available_for_payout = round(_numeric_value(row, "available_for_payout"), 2)
+        expected_payout_30 = round(_numeric_value(row, "expected_payout_next30"), 2)
+        expected_payout_60 = round(_numeric_value(row, "expected_payout_next60"), 2)
+        out_rate_per_min = round(max(0.0, _numeric_value(row, "out_rate_per_min")), 2)
+        net_buffer_30 = round(available_for_payout - expected_payout_30, 2)
+        net_buffer_60 = round(available_for_payout - expected_payout_60, 2)
+
+        projection_minutes = [0, 10, 20, 30, 40, 50, 60]
+        projected_buffer = [
+            round(available_for_payout - (out_rate_per_min * minute), 2)
+            for minute in projection_minutes
         ]
         updated_ts = snapshot_ts if not pd.isna(snapshot_ts) else pd.Timestamp.now(tz="UTC")
         updated = updated_ts.isoformat()
         time_to_live = (updated_ts + pd.Timedelta(minutes=45)).isoformat()
-        threshold = float(pd.to_numeric(row.get("decision_threshold", 0.6), errors="coerce") or 0.6)
+        threshold = _numeric_value(row, "decision_threshold", 0.6)
         confidence = _confidence_from_probability(need_prob)
-        expected_deficit = round(
-            float(pd.to_numeric(row.get("expected_deficit_next60", 0.0), errors="coerce") or 0.0),
-            2,
-        )
-        recommendation_items: list[dict[str, object]] = []
-        for idx, action_type in enumerate(types):
-            action = _fill_action(action_type, row, table_id)
-            deduplication_fields = {
-                "model_type": "PredictedFills",
-                "table_id": table_id,
-                "action_type": action_type,
-                "severity": severity.lower(),
+        expected_deficit = round(max(0.0, _numeric_value(row, "expected_deficit_next60", -net_buffer_60)), 2)
+
+        route_action = str(row.get("route_v2_action", "") or "").upper()
+        if need_pred:
+            action_type = "cage_fill"
+            deadline = f" within {time_to_depletion} minutes" if time_to_depletion is not None else ""
+            recommendation_text = f"Dispatch a chip fill to {display_name}{deadline}."
+        elif route_action == "ADD_TO_ROUTE":
+            action_type = "add_to_route"
+            recommendation_text = f"Add {display_name} to the active chip-fill route."
+        else:
+            action_type = "monitor"
+            recommendation_text = f"Monitor {display_name}; no immediate fill is required."
+
+        if action_type == "monitor":
+            modeled_impact = {
+                **modeled_impact,
+                "value": 0.0,
+                "label": "Estimated theo preserved by monitoring",
             }
-            if action_type == "table_transfer" and action.get("source_table_id") is not None:
-                deduplication_fields["source_table_id"] = str(action["source_table_id"])
-            recommendation_items.append(
-                {
-                    "id": idx + 1,
-                    "action": action,
-                    "text": recommendations[idx],
-                    "rationale": rationale[idx]["pretty"],
-                    "modeled_impact": {
-                        "value": modeled_impact[idx],
-                        "unit": "EV/hr",
-                    },
-                    "roi": {
-                        "value": roi_list[idx],
-                        "unit": roi_unit[idx],
-                    },
-                    "time_to_action": {
-                        "unit": "Minutes",
-                        "value": time_to_depletion_list[idx],
-                    },
-                    "confidence": confidence,
-                    "time_to_live": time_to_live,
-                    "thresholds": [
-                        {
-                            "metric": "payload.result.score",
-                            "operator": ">=",
-                            "value": threshold,
-                        }
-                    ],
-                    "deduplication_id": recommendation_deduplication_id(deduplication_fields),
-                }
+
+        if need_pred and time_to_depletion is not None:
+            trigger_metric = (
+                "Available chips above the safety reserve are projected to run out "
+                f"in approximately {time_to_depletion} minutes."
             )
+        elif need_pred:
+            trigger_metric = "Expected payouts exceed the available chip balance within the next 60 minutes."
+        elif action_type == "add_to_route":
+            trigger_metric = "This table can be serviced efficiently as part of an active chip-fill route."
+        else:
+            trigger_metric = "Projected chip balance remains above the safety reserve for the next 60 minutes."
+
+        balance_rationale = (
+            f"{available_for_payout:,.0f} is available above the {safety_reserve:,.0f} safety reserve, "
+            f"compared with {expected_payout_60:,.0f} in expected payouts over the next 60 minutes."
+        )
+        if action_type == "monitor":
+            rationale = f"{balance_rationale} No immediate fill is expected to preserve additional theo."
+        else:
+            rationale = (
+                f"{balance_rationale} Acting proactively is estimated to avoid "
+                f"{modeled_impact['downtime_minutes_avoided']:g} minutes of downtime and preserve "
+                f"{modeled_impact['value']:,.2f} in theo."
+            )
+
+        action = _fill_action(action_type, row, table_id)
+        deduplication_fields = {
+            "model_type": "PredictedFills",
+            "table_id": table_id,
+            "action_type": action_type,
+            "severity": severity.lower(),
+        }
+        if action_type == "add_to_route" and action.get("primary_dispatch_table_id") is not None:
+            deduplication_fields["primary_dispatch_table_id"] = str(action["primary_dispatch_table_id"])
+        recommendation_items = [
+            {
+                "id": 1,
+                "action": action,
+                "text": recommendation_text,
+                "context": table_context,
+                "trigger": trigger_metric,
+                "expected_value": modeled_impact,
+                "rationale": rationale,
+                "modeled_impact": modeled_impact,
+                "time_to_action": {
+                    "unit": "Minutes",
+                    "value": time_to_depletion,
+                },
+                "confidence": confidence,
+                "time_to_live": time_to_live,
+                "thresholds": [
+                    {
+                        "metric": "payload.result.score",
+                        "operator": ">=",
+                        "value": threshold,
+                    }
+                ],
+                "deduplication_id": recommendation_deduplication_id(deduplication_fields),
+            }
+        ]
+
+        if action_type in {"cage_fill", "add_to_route"}:
+            recommended_label = "Dispatch now" if action_type == "cage_fill" else "Add to route"
+            action_comparison = [
+                {
+                    "id": action_type,
+                    "label": recommended_label,
+                    "recommended": True,
+                    "expected_outcome": (
+                        f"Avoid approximately {modeled_impact['downtime_minutes_avoided']:g} minutes of downtime."
+                    ),
+                    "expected_theo_preserved": modeled_impact["value"],
+                },
+                {
+                    "id": "wait",
+                    "label": "Wait",
+                    "recommended": False,
+                    "expected_outcome": (
+                        f"Risk chip depletion in approximately {time_to_depletion} minutes."
+                        if time_to_depletion is not None
+                        else "Risk chip depletion within the next 60 minutes."
+                    ),
+                    "expected_theo_preserved": 0.0,
+                },
+            ]
+        else:
+            action_comparison = [
+                {
+                    "id": "monitor",
+                    "label": "Monitor",
+                    "recommended": True,
+                    "expected_outcome": "No immediate fill; continue monitoring the projected chip buffer.",
+                    "expected_theo_preserved": 0.0,
+                },
+                {
+                    "id": "dispatch_now",
+                    "label": "Dispatch now",
+                    "recommended": False,
+                    "expected_outcome": "No modeled downtime benefit at this time.",
+                    "expected_theo_preserved": 0.0,
+                },
+            ]
 
         alert = {
             "insights_id": f"evt_{uuid4().hex[:17].upper()}",
@@ -292,7 +407,7 @@ def build_fill_alerts_json(
             "gaming_day": updated_ts.date().isoformat(),
             "source": "cortex.models.predicted_fills",
             "env": "prod",
-            "version": 1.0,
+            "version": 2.0,
             "model": {
                 "type": "PredictedFills",
                 "version": str(
@@ -323,42 +438,71 @@ def build_fill_alerts_json(
                     "decision_class": "chip_depletion",
                     "score": round(need_prob, 6),
                     "confidence": confidence,
-                    "modeled_impact": {
-                        "value": modeled_impact[0] if modeled_impact else 0.0,
-                        "unit": "EV/hr",
-                        "horizon_min": 60,
-                    },
+                    "modeled_impact": {**modeled_impact, "horizon_min": 60},
                     "expected_deficit": expected_deficit,
                     "risk_band": str(row.get("risk_band", severity.lower())),
                     "payout_risk_label": "Below buffer" if need_prob >= threshold else "Above buffer",
                     "table_state": {
-                        "tray_balance": chart_points[0],
-                        "available_for_payout": chart_points[1],
-                        "expected_payout_next_30_min": chart_points[2],
-                        "expected_payout_next_60_min": chart_points[3],
-                        "out_rate_per_min": chart_points[4],
+                        "table_id": table_id,
+                        "table_name": display_name,
+                        "tray_balance": tray_balance,
+                        "safety_reserve": safety_reserve,
+                        "available_for_payout": available_for_payout,
+                        "expected_payout_next_30_min": expected_payout_30,
+                        "expected_payout_next_60_min": expected_payout_60,
+                        "net_buffer_next_30_min": net_buffer_30,
+                        "net_buffer_next_60_min": net_buffer_60,
+                        "out_rate_per_min": out_rate_per_min,
+                        "average_theo_per_hour": modeled_impact["average_theo_per_hour"],
+                        "time_to_depletion_min": time_to_depletion,
                     },
                 },
                 "presentation": {
-                    "headline": f"Predicted fill for Table {table_id}",
-                    "trigger_metric": "chip depletion probability",
+                    "message_type": "Predicted Fill Need",
+                    "message_type_code": "PREDICTED_FILL_NEED",
+                    "headline": (
+                        f"Predicted chip fill needed at {display_name}"
+                        if need_pred
+                        else (
+                            f"Add {display_name} to the active fill route"
+                            if action_type == "add_to_route"
+                            else f"Monitor chip levels at {display_name}"
+                        )
+                    ),
+                    "recommendation": recommendation_text,
+                    "context": table_context,
+                    "trigger_metric": trigger_metric,
+                    "expected_value": modeled_impact,
+                    "rationale": rationale,
                     "recommendations": recommendation_items,
+                    "action_comparison": action_comparison,
                     "chart": {
                         "type": "line",
-                        "y_label": "Value",
-                        "x_labels": [
-                            "Tray Balance",
-                            "Available Payout",
-                            "Expected 30m",
-                            "Expected 60m",
-                            "Out Rate",
-                        ],
+                        "title": "Projected chips above safety reserve",
+                        "y_label": "Chips above safety reserve",
+                        "x_label": "Minutes from now",
+                        "x_labels": ["Now", "+10m", "+20m", "+30m", "+40m", "+50m", "+60m"],
                         "series": [
                             {
-                                "name": "Current",
-                                "points": chart_points,
-                            }
+                                "name": "Wait / no fill",
+                                "points": projected_buffer,
+                            },
+                            {
+                                "name": "Safety reserve threshold",
+                                "points": [0.0] * len(projection_minutes),
+                            },
                         ],
+                        "annotations": (
+                            [
+                                {
+                                    "type": "vertical_marker",
+                                    "x_value_min": time_to_depletion,
+                                    "label": "Projected depletion",
+                                }
+                            ]
+                            if time_to_depletion is not None
+                            else []
+                        ),
                     },
                 },
                 "actions": {

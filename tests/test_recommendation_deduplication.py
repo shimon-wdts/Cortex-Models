@@ -7,6 +7,8 @@ import pandas as pd
 from app.inference.recommendation_contract import recommendation_deduplication_id
 from app.models.pipeline_contracts import ExecutionMode, RunContext
 from app.pipelines.cohorts.insights_contract import (
+    BETTING_STYLE_LABELS,
+    PLAYER_PROFILE_DEDUPLICATION_GENERATION,
     betting_style,
     build_cohort_insight,
     build_player_score_insight,
@@ -14,6 +16,7 @@ from app.pipelines.cohorts.insights_contract import (
 )
 from app.pipelines.lucky6_bigtiger.build_features import Lucky6FeatureRecord
 from app.pipelines.lucky6_bigtiger.inference import _prediction_payload, advantageous_level
+from app.pipelines.predicted_fills.build_features import FeatureBuilder
 from app.pipelines.predicted_fills.inference import build_fill_alerts_json
 
 
@@ -77,6 +80,13 @@ def test_shoe_advantage_uses_game_and_side_bet() -> None:
         "LUCKY SIX",
         "BIG TIGER",
     ]
+    assert event["shoe_id"] == "1160004"
+    assert event["application"] == ["cortexTableGuard"]
+    assert {entity["type"]: entity["id"] for entity in event["entity"]} == {
+        "SHOE": "1160004",
+        "GAME": "116000235",
+        "TABLE": "71",
+    }
     assert event["payload"]["presentation"]["chart"]["x_labels"] == ["LUCKY SIX", "BIG TIGER"]
     for recommendation in recommendations:
         assert_sha_only(recommendation)
@@ -107,45 +117,97 @@ def test_shoe_advantage_level_boundaries() -> None:
     assert advantageous_level(0.058801) == "h"
 
 
-def test_predicted_fills_includes_severity_and_transfer_source() -> None:
+def test_predicted_fills_uses_business_readable_value_and_chart() -> None:
     events = build_fill_alerts_json(
         pd.DataFrame(
             [
                 {
-                    "table_id": "174",
+                    "table_id": "51",
+                    "table_name": "BB1001",
+                    "pit_name": "Baccarat",
                     "snapshot_ts": "2026-07-26T03:45:00Z",
-                    "need_prob": 0.91,
+                    "need_prob": 0.924,
                     "need_pred": 1,
                     "decision_threshold": 0.60,
-                    "route_v2_primary_dispatch_table_id": "175",
+                    "tray_balance": 74000,
+                    "safety_reserve": 48000,
+                    "available_for_payout": 26000,
+                    "expected_payout_next30": 16500,
+                    "expected_payout_next60": 44500,
+                    "expected_deficit_next60": 18500,
+                    "out_rate_per_min": 740.5,
+                    "theo_last_60m": 600,
                 }
             ]
         ),
         limit=1,
     )
-    recommendations = events[0]["payload"]["presentation"]["recommendations"]
-    cage_fill, table_transfer = recommendations
+    event = events[0]
+    presentation = event["payload"]["presentation"]
+    recommendation = presentation["recommendations"][0]
 
-    assert_sha_only(cage_fill)
-    assert cage_fill["deduplication_id"] == recommendation_deduplication_id(
+    assert event["version"] == 2.0
+    assert presentation["message_type"] == "Predicted Fill Need"
+    assert presentation["headline"] == "Predicted chip fill needed at BB1001"
+    assert presentation["context"] == "BB1001 | Baccarat"
+    assert presentation["expected_value"]["value"] == 46.2
+    assert presentation["expected_value"]["calculation"] == (
+        "average_theo_per_hour * downtime_minutes_avoided / 60 * fill_need_probability"
+    )
+    assert "roi" not in recommendation
+    assert recommendation["time_to_action"] == {"unit": "Minutes", "value": 35}
+    assert [option["label"] for option in presentation["action_comparison"]] == ["Dispatch now", "Wait"]
+
+    chart = presentation["chart"]
+    assert chart["x_labels"] == ["Now", "+10m", "+20m", "+30m", "+40m", "+50m", "+60m"]
+    assert chart["series"][0] == {
+        "name": "Wait / no fill",
+        "points": [26000.0, 18595.0, 11190.0, 3785.0, -3620.0, -11025.0, -18430.0],
+    }
+    assert chart["series"][1]["points"] == [0.0] * 7
+
+    assert_sha_only(recommendation)
+    assert recommendation["deduplication_id"] == recommendation_deduplication_id(
         {
             "model_type": "PredictedFills",
-            "table_id": "174",
+            "table_id": "51",
             "action_type": "cage_fill",
             "severity": "critical",
         }
     )
 
-    assert_sha_only(table_transfer)
-    assert table_transfer["deduplication_id"] == recommendation_deduplication_id(
-        {
-            "model_type": "PredictedFills",
-            "table_id": "174",
-            "action_type": "table_transfer",
-            "severity": "critical",
-            "source_table_id": "175",
-        }
+
+def test_predicted_fills_aggregates_last_hour_theo_by_table() -> None:
+    anchor = pd.Timestamp("2026-07-26T04:00:00Z")
+    bets = pd.DataFrame(
+        [
+            {
+                "table_id": 51,
+                "payout_ts": pd.Timestamp("2026-07-26T03:15:00Z"),
+                "casino_win": 10,
+                "casino_loss": 0,
+                "theo_win": 25,
+            },
+            {
+                "table_id": 51,
+                "payout_ts": pd.Timestamp("2026-07-26T03:45:00Z"),
+                "casino_win": -20,
+                "casino_loss": 20,
+                "theo_win": 35,
+            },
+            {
+                "table_id": 51,
+                "payout_ts": pd.Timestamp("2026-07-26T02:45:00Z"),
+                "casino_win": 50,
+                "casino_loss": 0,
+                "theo_win": 100,
+            },
+        ]
     )
+
+    flow = FeatureBuilder().bet_flow_window(bets, anchor)
+
+    assert flow.loc[0, "theo_last_60m"] == 60
 
 
 def test_player_cohort_uses_player_action_and_cohort() -> None:
@@ -162,6 +224,10 @@ def test_player_cohort_uses_player_action_and_cohort() -> None:
     )
     recommendation = event["payload"]["presentation"]["recommendations"][0]
 
+    assert event["entity"] == [
+        {"type": "Player", "id": "1000214", "present_in_user_interface": True}
+    ]
+    assert recommendation["thresholds"] == []
     assert_sha_only(recommendation)
     assert recommendation["deduplication_id"] == recommendation_deduplication_id(
         {
@@ -169,8 +235,32 @@ def test_player_cohort_uses_player_action_and_cohort() -> None:
             "player_id": "1000214",
             "action_type": "review_cohort_assignment",
             "cohort": "High Value",
+            "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
         }
     )
+
+
+def test_player_profile_generation_changes_the_previous_deduplication_id() -> None:
+    event = build_cohort_insight(
+        pd.Series(
+            {
+                "player_id": "1000214",
+                "cohort_model_label": "High Value",
+            }
+        )
+    )
+    refreshed_id = event["payload"]["presentation"]["recommendations"][0]["deduplication_id"]
+    previous_id = recommendation_deduplication_id(
+        {
+            "model_type": "PlayerCohort",
+            "player_id": "1000214",
+            "action_type": "review_cohort_assignment",
+            "cohort": "High Value",
+        }
+    )
+
+    assert refreshed_id != previous_id
+    assert re.fullmatch(r"[0-9a-f]{64}", refreshed_id)
 
 
 def test_tier_lift_includes_specific_recommendation_target() -> None:
@@ -205,6 +295,7 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
             "recommended_path": "Invite to higher-limit path",
             "target_cohort": "VIP",
             "recommendation_target": "Higher-limit path",
+            "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
         }
     )
     assert primary["modeled_impact"]["current_theo"] == 333.33
@@ -250,7 +341,7 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
         {
             "metric": "payload.result.modeled_impact.theo_growth_pct",
             "operator": ">=",
-            "value": 5.0,
+            "value": 0.0,
         }
     ]
     assert primary["rationale"] == (
@@ -289,8 +380,48 @@ def test_tier_lift_includes_specific_recommendation_target() -> None:
             "target_cohort": "VIP",
             "recommendation_target": "Higher-limit path",
             "trigger": "primary_action_not_redeemed",
+            "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
         }
     )
+
+
+def test_tier_lift_uses_player_as_entity_and_retains_latest_table_id() -> None:
+    event = build_tier_lift_insight(
+        pd.Series(
+            {
+                "player_id": "1000214",
+                "latest_table_id": "71",
+                "recommended_path": "Improve table fit and access",
+                "path_fit_score": 0.8,
+                "active_days": 3,
+            }
+        )
+    )
+
+    assert event["entity"] == [
+        {"type": "Player", "id": "1000214", "present_in_user_interface": True}
+    ]
+    assert event["player_id"] == "1000214"
+    assert event["table_id"] == "71"
+
+
+def test_tier_lift_uses_player_entity_when_latest_table_is_unavailable() -> None:
+    event = build_tier_lift_insight(
+        pd.Series(
+            {
+                "player_id": "1000214",
+                "recommended_path": "Maintain current trajectory",
+                "path_fit_score": 0.8,
+                "active_days": 3,
+            }
+        )
+    )
+
+    assert event["entity"] == [
+        {"type": "Player", "id": "1000214", "present_in_user_interface": True}
+    ]
+    assert event["player_id"] == "1000214"
+    assert "table_id" not in event
 
 
 def test_tier_lift_projection_shortens_for_more_frequent_visits() -> None:
@@ -341,7 +472,7 @@ def test_tier_lift_time_to_action_uses_visit_frequency() -> None:
         assert follow_up["time_to_action"] == {"unit": "Days", "value": follow_up_days}
 
 
-def test_tier_lift_exposes_five_percent_threshold_without_suppressing_output() -> None:
+def test_tier_lift_exposes_zero_percent_threshold_without_suppressing_output() -> None:
     event = build_tier_lift_insight(
         pd.Series(
             {
@@ -359,7 +490,7 @@ def test_tier_lift_exposes_five_percent_threshold_without_suppressing_output() -
         {
             "metric": "payload.result.modeled_impact.theo_growth_pct",
             "operator": ">=",
-            "value": 5.0,
+            "value": 0.0,
         }
     ]
 
@@ -458,7 +589,11 @@ def test_player_performance_includes_displayed_score() -> None:
     )
     recommendation = event["payload"]["presentation"]["recommendations"][0]
 
+    assert event["entity"] == [
+        {"type": "Player", "id": "1000214", "present_in_user_interface": True}
+    ]
     assert event["payload"]["result"]["player_score"] == 73.4
+    assert recommendation["thresholds"] == []
     assert_sha_only(recommendation)
     assert recommendation["deduplication_id"] == recommendation_deduplication_id(
         {
@@ -466,6 +601,7 @@ def test_player_performance_includes_displayed_score() -> None:
             "player_id": "1000214",
             "action_type": "review_player_score",
             "player_score": "73.4",
+            "dedup_generation": PLAYER_PROFILE_DEDUPLICATION_GENERATION,
         }
     )
 
@@ -499,3 +635,29 @@ def test_betting_style_uses_product_taxonomy() -> None:
             "risk_volatility": "Medium Risk",
             "limit_readiness_score": 45.0,
         }
+
+
+def test_betting_style_accepts_canonical_product_labels() -> None:
+    for label in BETTING_STYLE_LABELS:
+        style = betting_style(pd.Series({"primary_behavior": label}))
+
+        assert style["label"] == label
+
+
+def test_all_cohort_family_outputs_use_closed_betting_style_taxonomy() -> None:
+    builders = (build_cohort_insight, build_tier_lift_insight, build_player_score_insight)
+    rows = [
+        {"primary_behavior": "Balanced"},
+        {"primary_behavior": "Progressive"},
+        {"primary_behavior": "Side_Bet_Heavy"},
+        {"primary_behavior": "Volatile"},
+        {"primary_behavior": "Risk-Wagerer"},
+        {"primary_behavior": "Future unrecognized behavior"},
+    ]
+
+    for builder in builders:
+        for values in rows:
+            event = builder(pd.Series({"player_id": "1000214", **values}))
+            label = event["payload"]["result"]["betting_style"]["label"]
+
+            assert label in BETTING_STYLE_LABELS

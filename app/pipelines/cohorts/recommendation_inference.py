@@ -187,7 +187,6 @@ def choose_recommendation(row: pd.Series) -> dict[str, object]:
     active_days = safe_num(row, "active_days")
     hours_trend = safe_num(row, "hours_played_w3_vs_w1")
     chase_trend = safe_num(row, "chase_rate_w3_vs_w1")
-    ceiling = safe_num(row, "ceiling_pressure_score")
     range_width = safe_num(row, "range_width_score")
     stretch = safe_num(row, "stretch_capacity_score")
     rhythm = safe_num(row, "rhythm_score")
@@ -361,8 +360,13 @@ def choose_recommendation(row: pd.Series) -> dict[str, object]:
     }
 
 
-def infer_recommendations(cohort_path: Path, metadata_path: Path, output_dir: Path, recommend_all: bool = True) -> dict[str, object]:
-    data = pd.read_csv(cohort_path, low_memory=False)
+def infer_recommendations_from_frame(
+    cohorts: pd.DataFrame,
+    metadata_path: Path,
+    recommend_all: bool = True,
+) -> pd.DataFrame:
+    """Build recommendations without serializing intermediate pipeline data."""
+    data = cohorts.copy()
     total = data[data["period"].eq("Total")].copy()
     trends = build_trend_context(data)
     total = total.merge(trends, on="player_id", how="left")
@@ -436,6 +440,17 @@ def infer_recommendations(cohort_path: Path, metadata_path: Path, output_dir: Pa
     cols = [c for c in keep_first if c in out.columns] + [c for c in out.columns if c not in keep_first]
     out = out[cols].sort_values(["path_fit_score", "player_id"], ascending=[False, True])
 
+    return out
+
+
+def infer_recommendations(
+    cohort_path: Path,
+    metadata_path: Path,
+    output_dir: Path,
+    recommend_all: bool = True,
+) -> dict[str, object]:
+    data = pd.read_csv(cohort_path, low_memory=False)
+    out = infer_recommendations_from_frame(data, metadata_path, recommend_all=recommend_all)
     path = output_dir / "player_recommendations.csv"
     safe_write_csv(out, path)
     candidates = out[out["recommendation_candidate"].fillna(False).astype(bool)].copy()

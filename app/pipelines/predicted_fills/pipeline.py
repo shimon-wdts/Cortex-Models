@@ -75,7 +75,7 @@ class PredictiveFillsPipeline(Pipeline):
                 "recommended_action", "route_v2_action", "route_v2_is_opportunistic",
                 "route_v2_primary_dispatch_table_id", "route_v2_net_benefit_minutes",
                 "route_v2_reason",
-                "tray_balance", "tray_age_hours", "OUT_total_60m", "expected_payout_next60",
+                "tray_balance", "tray_age_hours", "OUT_total_60m", "theo_last_60m", "expected_payout_next60",
                 "net_buffer_next60", "denom_risk_next60_rule", "data_quality_status",
                 "score_usable_for_shadow_review", "score_usable_for_auto_dispatch",
                 "insight_summary",
