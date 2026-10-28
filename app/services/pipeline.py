@@ -120,7 +120,7 @@ def run_inference(
     registry: ModelRegistry | None = None,
 ) -> list[dict[str, Any]]:
     registry = registry or get_model_registry()
-    registry.get_model(context.model_name)
+    config = registry.get_model(context.model_name)
     with observe_step(context, PipelineStep.INFERENCE):
         logger = get_run_logger()
         predictions = get_pipeline(context.model_name).run_inference(features, context)
