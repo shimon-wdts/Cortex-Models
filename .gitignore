@@ -212,3 +212,4 @@ WIP/
 node_modules/
 .tmp/
 mlruns/
+app/resources/ca.crt

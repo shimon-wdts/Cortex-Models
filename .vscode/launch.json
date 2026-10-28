@@ -12,7 +12,9 @@
             "console": "integratedTerminal",
             "env": {
                 "PREFECT_API_URL": "http://127.0.0.1:4200/api",
-                "CORTEX_ENV": "local-env"
+                "CORTEX_ENV": "local-env",
+                "MLFLOW_TRACKING_INSECURE_TLS": "true",
+                "MLFLOW_TRACKING_URI": "https://uat-mlflow-cortex-floor.wdts.local",
             }
         },
         {
