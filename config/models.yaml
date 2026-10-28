@@ -17,6 +17,10 @@ model_registry:
     client_id: cortex-models
     acks: all
 
+  model_store_connection:
+    provider: mlflow
+    tracking_uri: https://uat-mlflow-cortex-floor.wdts.local
+
   cohort_model_store: &cohort_model_store
     provider: custom
     version: "0.1.0"
@@ -259,10 +263,7 @@ model_registry:
           df_columns: ["table_id", "topology_name", "description", "topology_status", "device_type", "game_type", "table_type"]
 
       model_store:
-        provider: mlflow
-        tracking_uri: http://mlflow:5000
-        registered_model_name: PredictedFills
-        version: "10.2.0"
+        uri: models:/predicted_fills@champion
 
       output:
         adapter: app.inference.prediction_adapters:generic_insight_event_adapter
@@ -380,8 +381,7 @@ model_registry:
           df_columns: ["GameId", "ShoeId", "ShoeGameCount", "CardP1", "CardP2", "CardP3", "CardB1", "CardB2", "CardB3", "PlayerScore", "BankerScore", "Outcome", "GameStartDtm", "PayoutCompleteDtm", "GamingDay", "TableId", "TableName", "PitName", "GamingArea", "GameType", "GameStatus"]
 
       model_store:
-        provider: custom
-        version: recommended
+        uri: models:/shoe_advantage@champion
 
       output:
         adapter: app.inference.prediction_adapters:generic_insight_event_adapter
@@ -430,7 +430,8 @@ model_registry:
         concurrency_limit: 1
 
       queries: *cohort_queries
-      model_store: *cohort_model_store
+      model_store:
+        uri: models:/cohort@champion
       output: *cohort_player_output
       kafka: *cohort_kafka
 
@@ -460,7 +461,8 @@ model_registry:
         concurrency_limit: 1
 
       queries: *cohort_queries
-      model_store: *cohort_model_store
+      model_store:
+        uri: models:/cohort_tier_lift@champion
       output: *cohort_player_output
       kafka: *cohort_kafka
 
@@ -490,6 +492,7 @@ model_registry:
         concurrency_limit: 1
 
       queries: *cohort_queries
-      model_store: *cohort_model_store
+      model_store:
+        uri: models:/playerscore@champion
       output: *cohort_player_output
       kafka: *cohort_kafka

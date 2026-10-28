@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from app.models.pipeline_contracts import ModelStoreConfig
-from app.services.imports import import_callable
+from app.models.pipeline_contracts import ModelStoreConfig, ModelStoreConnectionConfig
 
 
 class PredictiveModel(Protocol):
@@ -12,31 +11,32 @@ class PredictiveModel(Protocol):
 
 
 class ModelLoader(Protocol):
-    def load(self, config: ModelStoreConfig) -> PredictiveModel:
+    def load(
+        self,
+        connection: ModelStoreConnectionConfig,
+        config: ModelStoreConfig,
+    ) -> PredictiveModel:
         ...
 
 
 class MLflowModelLoader:
-    def load(self, config: ModelStoreConfig) -> PredictiveModel:
+    def load(
+        self,
+        connection: ModelStoreConnectionConfig,
+        config: ModelStoreConfig,
+    ) -> PredictiveModel:
         import mlflow
 
-        if config.tracking_uri:
-            mlflow.set_tracking_uri(config.tracking_uri)
+        if connection.tracking_uri:
+            mlflow.set_tracking_uri(connection.tracking_uri)
 
-        model_uri = config.uri
-        if not model_uri:
-            if not config.registered_model_name:
-                raise ValueError("MLflow model config requires registered_model_name or uri")
-            model_uri = f"models:/{config.registered_model_name}/{config.version}"
-
-        return mlflow.pyfunc.load_model(model_uri)
+        return mlflow.pyfunc.load_model(config.uri)
 
 
-def load_model(config: ModelStoreConfig) -> PredictiveModel:
-    if config.provider == "custom":
-        if not config.loader:
-            raise ValueError("Custom model store config requires loader")
-        loader_factory = import_callable(config.loader)
-        loader = loader_factory()
-        return loader.load(config)
-    return MLflowModelLoader().load(config)
+def load_model(
+    connection: ModelStoreConnectionConfig,
+    config: ModelStoreConfig,
+) -> PredictiveModel:
+    if connection.provider != "mlflow":
+        raise ValueError(f"Unsupported model store provider: {connection.provider}")
+    return MLflowModelLoader().load(connection, config)

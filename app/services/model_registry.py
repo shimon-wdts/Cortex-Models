@@ -6,7 +6,11 @@ from typing import Any
 from dynaconf import Dynaconf
 
 from app.core.config import settings
-from app.models.pipeline_contracts import ModelPipelineConfig, ModelRegistryConfig
+from app.models.pipeline_contracts import (
+    ModelPipelineConfig,
+    ModelRegistryConfig,
+    ModelStoreConnectionConfig,
+)
 
 
 def _as_plain_dict(value: Any) -> dict[str, Any]:
@@ -36,6 +40,10 @@ class ModelRegistry:
     def kafka(self) -> dict[str, Any]:
         return self._registry.kafka
 
+    @property
+    def model_store_connection(self) -> ModelStoreConnectionConfig:
+        return self._registry.model_store_connection
+
     def list_models(self, include_disabled: bool = False) -> dict[str, ModelPipelineConfig]:
         if include_disabled:
             return self._registry.models
@@ -61,7 +69,10 @@ class ModelRegistry:
     def step_deployment_name(self, model_name: str, step: str) -> str:
         return f"cortex-model-step/{model_name}-{step}"
     
-    def get_model_store_dir(self, model_name: str) -> str:
+    def get_model_store_dir(self, model_name: str) -> str | None:
+        if self.model_store_connection.provider == "mlflow":
+            return None
+
         models_dir = settings.dirs.get("models_dir")
         config = self.get_model(model_name, include_disabled=True)
         if config.model_store.uri:

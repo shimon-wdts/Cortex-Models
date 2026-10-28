@@ -42,13 +42,13 @@ class QueryConfig(BaseModel):
     deduplicate_on: list[str] = Field(default_factory=list)
 
 
-class ModelStoreConfig(BaseModel):
-    provider: Literal["mlflow", "custom"] = "mlflow"
+class ModelStoreConnectionConfig(BaseModel):
+    provider: Literal["mlflow"] = "mlflow"
     tracking_uri: str | None = None
-    registered_model_name: str | None = None
-    version: str
-    uri: str | None = None
-    loader: str | None = None
+
+
+class ModelStoreConfig(BaseModel):
+    uri: str
 
 
 
@@ -93,6 +93,7 @@ class ModelRegistryConfig(BaseModel):
     prefect: dict[str, Any] = Field(default_factory=dict)
     postgres: dict[str, Any] = Field(default_factory=dict)
     kafka: dict[str, Any] = Field(default_factory=dict)
+    model_store_connection: ModelStoreConnectionConfig = Field(default_factory=ModelStoreConnectionConfig)
     models: dict[str, ModelPipelineConfig] = Field(default_factory=dict)
 
 
