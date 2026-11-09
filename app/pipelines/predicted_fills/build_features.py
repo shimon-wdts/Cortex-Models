@@ -67,8 +67,23 @@ def build_feature_dataset(
             denom["snapshot_ts"] = pd.Timestamp(anchor_ts)
             denom_frames.append(denom)
 
-    features = pd.concat([f for f in feature_frames if f is not None and not f.empty], ignore_index=True) if feature_frames else pd.DataFrame()
-    denom_risk = pd.concat([d for d in denom_frames if d is not None and not d.empty], ignore_index=True) if denom_frames else pd.DataFrame()
+    nonempty_feature_frames = [f for f in feature_frames if f is not None and not f.empty]
+    if nonempty_feature_frames:
+        features = pd.concat(nonempty_feature_frames, ignore_index=True)
+    elif feature_frames:
+        # Keep the feature schema when every DB-backed snapshot is empty.
+        features = feature_frames[0].iloc[0:0].copy()
+    else:
+        features = pd.DataFrame()
+
+    nonempty_denom_frames = [d for d in denom_frames if d is not None and not d.empty]
+    if nonempty_denom_frames:
+        denom_risk = pd.concat(nonempty_denom_frames, ignore_index=True)
+    elif denom_frames:
+        denom_risk = denom_frames[0].iloc[0:0].copy()
+    else:
+        denom_risk = pd.DataFrame()
+
     features = add_table_labels(features, topology, sources.tray_scans)
     return FeatureResult(features=features, denom_risk=denom_risk)
 

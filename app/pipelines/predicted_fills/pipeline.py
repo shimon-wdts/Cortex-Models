@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 import pandas as pd
 
+from app.clients.model_store import load_model
 from app.models.pipeline_contracts import RunContext
 from app.pipelines.base import Pipeline
 from app.pipelines.predicted_fills.build_features import FeatureResult, FeatureConfig, add_quality_flags, build_feature_dataset
 from app.pipelines.predicted_fills.fetch_data import SOURCE_TABLES, SourceBundle, df_profile, normalize_sources
-from app.pipelines.predicted_fills.inference import build_fill_alerts_json, score_with_saved_model
+from app.pipelines.predicted_fills.inference import build_fill_alerts_json, score_with_mlflow_model
 from app.pipelines.predicted_fills.route_v2 import RouteV2Config, add_route_v2_recommendations
+from app.services.model_registry import get_model_registry
 
 
 class PredictiveFillsPipeline(Pipeline):
@@ -97,8 +98,15 @@ class PredictiveFillsPipeline(Pipeline):
         return alerts
 
     def run_inference(self, features: Any, context: RunContext) -> Any:
-        model_path = Path(context.model_store_dir).resolve()
-        scored = score_with_saved_model(features.features, model_dir=model_path, threshold=context.parameters["threshold"])
+        registry = get_model_registry()
+        config = registry.get_model(context.model_name)
+        loaded_model = load_model(registry.model_store_connection, config.model_store)
+        scored = score_with_mlflow_model(
+            features.features,
+            model=loaded_model.model,
+            metadata=loaded_model.metadata,
+            threshold=float(context.parameters["threshold"]),
+        )
         scored = add_quality_flags(scored)
         route_config = RouteV2Config(
             urgent_threshold=float(context.parameters["threshold"]),

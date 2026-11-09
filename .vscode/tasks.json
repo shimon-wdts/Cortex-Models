@@ -9,7 +9,7 @@
                 "cwd": "${workspaceFolder}",
                 "env": {
                     "PREFECT_API_URL": "http://127.0.0.1:4200/api",
-                    "CORTEX_ENV": "local"
+                    "CORTEX_ENV": "local-env"
                 }
             },
             "problemMatcher": []
@@ -31,7 +31,7 @@
                 "cwd": "${workspaceFolder}",
                 "env": {
                     "PREFECT_API_URL": "http://127.0.0.1:4200/api",
-                    "CORTEX_ENV": "local"
+                    "CORTEX_ENV": "local-env"
                 }
             },
             "problemMatcher": []

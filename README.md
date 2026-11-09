@@ -137,7 +137,7 @@ macOS/Linux:
 
 ```bash
 export PREFECT_API_URL=http://127.0.0.1:4200/api
-export CORTEX_ENV=local
+export CORTEX_ENV=local-env
 
 .venv/bin/python -m app.flows.deployments
 ```
@@ -146,7 +146,7 @@ Windows PowerShell:
 
 ```powershell
 $env:PREFECT_API_URL = "http://127.0.0.1:4200/api"
-$env:CORTEX_ENV = "local"
+$env:CORTEX_ENV = "local-env"
 
 .venv\Scripts\python.exe -m app.flows.deployments
 ```
@@ -155,7 +155,7 @@ Windows CMD:
 
 ```bat
 set PREFECT_API_URL=http://127.0.0.1:4200/api
-set CORTEX_ENV=local
+set CORTEX_ENV=local-env
 
 .venv\Scripts\python.exe -m app.flows.deployments
 ```
@@ -170,7 +170,7 @@ macOS/Linux:
 
 ```bash
 export PREFECT_API_URL=http://127.0.0.1:4200/api
-export CORTEX_ENV=local
+export CORTEX_ENV=local-env
 
 .venv/bin/prefect worker start -p cortex-models --type process
 ```
@@ -179,7 +179,7 @@ Windows PowerShell:
 
 ```powershell
 $env:PREFECT_API_URL = "http://127.0.0.1:4200/api"
-$env:CORTEX_ENV = "local"
+$env:CORTEX_ENV = "local-env"
 
 .venv\Scripts\prefect.exe worker start -p cortex-models --type process
 ```
@@ -188,7 +188,7 @@ Windows CMD:
 
 ```bat
 set PREFECT_API_URL=http://127.0.0.1:4200/api
-set CORTEX_ENV=local
+set CORTEX_ENV=local-env
 
 .venv\Scripts\prefect.exe worker start -p cortex-models --type process
 ```
@@ -220,11 +220,11 @@ config/settings.{CORTEX_ENV}.yaml
 config/models.{CORTEX_ENV}.yaml
 ```
 
-Later files override earlier values. Nested dictionaries are merged, so `config/settings.local.yaml` can override `model_registry.postgres.replica_url` without replacing the entire model registry.
+Later files override earlier values. Nested dictionaries are merged, so `config/settings.local-env.yaml` can override `model_registry.postgres.replica_url` without replacing the entire model registry.
 
 Common environment variables:
 
-- `CORTEX_ENV` selects local, dev, uat, or prod overrides.
+- `CORTEX_ENV` selects local-env, dev, uat, or prod overrides.
 - `PREFECT_API_URL` points clients and workers at the Prefect server API.
 - `PREFECT_API_DATABASE_CONNECTION_URL` configures the Prefect server database.
 - `CORTEX_*` values can override Dynaconf settings.
@@ -283,7 +283,7 @@ app/
     pipeline.py            # Testable pipeline business logic
 config/
   models.yaml              # Model registry and deployment config
-  settings.local.yaml      # Local environment overrides
+  settings.local-env.yaml      # Local environment overrides
 ```
 
 ## Model Config
@@ -363,7 +363,7 @@ Deployments are created by:
 
 ```bash
 PREFECT_API_URL=http://127.0.0.1:4200/api \
-CORTEX_ENV=local \
+CORTEX_ENV=local-env \
 .venv/bin/python -m app.flows.deployments
 ```
 

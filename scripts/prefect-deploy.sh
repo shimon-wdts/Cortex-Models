@@ -4,7 +4,7 @@ set -euo pipefail
 PREFECT_API_URL="${PREFECT_API_URL:-http://prefect-server:4200/api}"
 PREFECT_WORK_POOL="${PREFECT_WORK_POOL:-cortex-models}"
 PREFECT_WORK_POOL_TYPE="${PREFECT_WORK_POOL_TYPE:-process}"
-CORTEX_ENV="${CORTEX_ENV:-local}"
+CORTEX_ENV="${CORTEX_ENV:-local-env}"
 
 export PREFECT_API_URL
 export CORTEX_ENV

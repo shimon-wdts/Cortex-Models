@@ -7,7 +7,7 @@ SERVER_PID_FILE="${STATE_DIR}/server.pid"
 SERVER_LOG_FILE="${STATE_DIR}/server.log"
 
 PREFECT_API_URL="${PREFECT_API_URL:-http://127.0.0.1:4200/api}"
-CORTEX_ENV="${CORTEX_ENV:-local}"
+CORTEX_ENV="${CORTEX_ENV:-local-env}"
 
 mkdir -p "${STATE_DIR}"
 

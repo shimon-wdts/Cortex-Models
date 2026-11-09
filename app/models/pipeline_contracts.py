@@ -78,7 +78,7 @@ class ModelPipelineConfig(BaseModel):
     features_version: str = "1.0"
     type: str
     source: str
-    env: str = "local"
+    env: str = "local-env"
     output_schema_version: float = 1.0
     severity_default: str = "medium"
     parameters: dict[str, Any] = Field(default_factory=dict)

@@ -72,6 +72,32 @@ def load_model_artifacts(model_dir: Path) -> tuple[dict, object | None]:
     return metadata, estimator
 
 
+def score_with_mlflow_model(
+    features: pd.DataFrame,
+    model: object,
+    metadata: dict,
+    threshold: float = 0.60,
+) -> pd.DataFrame:
+    out = features.copy()
+    if out.empty:
+        out["need_prob"] = pd.Series(dtype=float)
+        out["need_pred"] = pd.Series(dtype=int)
+        out["decision_threshold"] = pd.Series(dtype=float)
+        out["model_type"] = str(metadata.get("model_type", "unknown"))
+        out["recommended_action"] = pd.Series(dtype=str)
+        out["risk_band"] = pd.Series(dtype=str)
+        out["insight_summary"] = pd.Series(dtype=str)
+        return out
+
+    feature_cols = metadata.get("feature_cols", [])
+    if model is not None and feature_cols:
+        X = out.reindex(columns=feature_cols, fill_value=0.0).apply(pd.to_numeric, errors="coerce").fillna(0.0)
+        out["need_prob"] = model.predict_proba(X)[:, 1]
+    else:
+        out["need_prob"] = rule_score(out)
+    return _add_score_columns(out, metadata, threshold)
+
+
 def score_with_saved_model(features: pd.DataFrame, model_dir: Path | None = None, threshold: float = 0.60) -> pd.DataFrame:
     resolved_model_dir = model_dir or default_model_dir()
     out = features.copy()
@@ -95,6 +121,10 @@ def score_with_saved_model(features: pd.DataFrame, model_dir: Path | None = None
         out["need_prob"] = estimator.predict_proba(X)[:, 1]
     else:
         out["need_prob"] = rule_score(out)
+    return _add_score_columns(out, metadata, threshold)
+
+
+def _add_score_columns(out: pd.DataFrame, metadata: dict, threshold: float) -> pd.DataFrame:
     out["need_pred"] = (out["need_prob"] >= threshold).astype(int)
     out["decision_threshold"] = float(threshold)
     out["model_type"] = str(metadata.get("model_type", "unknown"))
